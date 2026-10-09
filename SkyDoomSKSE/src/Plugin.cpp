@@ -7454,9 +7454,10 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 		}
 
 		if (g_state) {
-			g_state->skyrim.combat_mode =
+			// DOOM music plays in combat mode only.
+			g_state->skyrim.mode_flags =
 				combat ?
-					1u :
+					SKYDOOM_MODE_COMBAT | SKYDOOM_MODE_MUSIC :
 					0u;
 		}
 	}

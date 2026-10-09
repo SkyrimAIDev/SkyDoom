@@ -113,6 +113,10 @@
 
 #define SKYDOOM_OVERLAY_FLAG_WEAPON 0x00000001u
 
+/* SkyDoomSkyrimState.mode_flags */
+#define SKYDOOM_MODE_COMBAT 0x00000001u /* DOOM combat mode is active */
+#define SKYDOOM_MODE_MUSIC  0x00000002u /* DOOM music may play */
+
 
 #pragma pack(push, 8)
 
@@ -188,8 +192,8 @@ typedef struct SkyDoomSkyrimState
     float player_yaw;
     float player_pitch;
 
-    /* SKYDOOM_COMBAT_MODE: 1 while DOOM mode is on and a weapon is drawn. */
-    uint32_t combat_mode;
+    /* SKYDOOM_MODE_* flags, set by the host. */
+    uint32_t mode_flags;
 
     uint64_t heartbeat_ms;
     uint64_t update_counter;
