@@ -11712,10 +11712,199 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 
 
 
+
+    // ========================================================
+    // SKYDOOM DESTRUCTIBLE OBJECTS
+    // ========================================================
+
+    /*
+        SKYDOOM_DESTRUCTIBLES
+
+        DOOM weapons also break Skyrim's destructible objects, such as
+        the spider webs that block dungeon passages. Every DOOM hitscan
+        or melee shot casts the camera aim ray (the same world -> Havok
+        conversion and player collision filter as the hitscan occlusion
+        tests); if the first thing it hits is a non-actor reference whose
+        base object has destruction data, the shot's damage (with the
+        MCM damage multiplier) goes to TESObjectREFR::DamageObject, as a
+        Skyrim weapon hit would. Actors keep using the normal hit path.
+        Main thread.
+    */
+    // DamageObject's second argument. Skyrim's weapon, explosion and impact
+    // damage pass false, which respects destruction stages flagged "Ignore
+    // External Damage"; Papyrus ObjectReference.DamageObject passes true.
+    // DOOM shots behave like a Skyrim weapon hit.
+    constexpr bool
+        kSkyDoomBypassExternalDamageRules =
+            false;
+
+    // Skip the first units so the ray never starts inside the player.
+    constexpr float
+        kSkyDoomAimRayStartOffset =
+            16.0f;
+
+    void DamageSkyDoomDestructibleAlongAim(
+        std::int32_t a_doomDamage,
+        float a_range
+    )
+    {
+        auto* player =
+            RE::PlayerCharacter::GetSingleton();
+
+        auto* camera =
+            RE::PlayerCamera::GetSingleton();
+
+        if (
+            !player ||
+            !camera ||
+            !camera->cameraRoot
+        )
+        {
+            return;
+        }
+
+        auto* controller =
+            player->GetCharController();
+
+        auto* world =
+            controller ?
+                controller->GetHavokWorld() :
+                nullptr;
+
+        if (!world)
+        {
+            return;
+        }
+
+        const auto& cameraWorld =
+            camera->cameraRoot->world;
+
+        RE::NiPoint3 forward =
+            cameraWorld.rotate *
+            RE::NiPoint3{ 0.0f, 1.0f, 0.0f };
+
+        if (
+            forward.Unitize() <= 0.0f ||
+            a_range <= kSkyDoomAimRayStartOffset
+        )
+        {
+            return;
+        }
+
+        RE::hkVector4 playerHavok{};
+
+        controller->GetPosition(
+            playerHavok,
+            false
+        );
+
+        const RE::NiPoint3 playerWorld =
+            player->GetPosition();
+
+        const RE::hkVector4 havokScale{
+            RE::bhkWorld::GetWorldScale()
+        };
+
+        const auto toHavok =
+            [&](const RE::NiPoint3& a_world)
+            {
+                return
+                    playerHavok +
+                    RE::hkVector4(
+                        a_world - playerWorld
+                    ) *
+                    havokScale;
+            };
+
+        RE::bhkPickData pick{};
+
+        pick.rayInput.enableShapeCollectionFilter =
+            true;
+
+        pick.rayInput.from =
+            toHavok(
+                cameraWorld.translate +
+                forward * kSkyDoomAimRayStartOffset
+            );
+
+        pick.rayInput.to =
+            toHavok(
+                cameraWorld.translate +
+                forward * a_range
+            );
+
+        controller->GetCollisionFilterInfo(
+            pick.rayInput.filterInfo
+        );
+
+        if (
+            !world->PickObject(pick) ||
+            !pick.rayOutput.rootCollidable
+        )
+        {
+            return;
+        }
+
+        auto* ref =
+            RE::TESHavokUtilities::FindCollidableRef(
+                *pick.rayOutput.rootCollidable
+            );
+
+        if (
+            !ref ||
+            ref == player ||
+            ref->IsDisabled() ||
+            ref->As<RE::Actor>()
+        )
+        {
+            return;
+        }
+
+        auto* base =
+            ref->GetBaseObject();
+
+        const auto* destructible =
+            base ?
+                base->As<RE::BGSDestructibleObjectForm>() :
+                nullptr;
+
+        if (
+            !destructible ||
+            !destructible->data
+        )
+        {
+            return;
+        }
+
+        const float damage =
+            SkyDoomScaledDamage(
+                a_doomDamage
+            );
+
+        ref->DamageObject(
+            damage,
+            kSkyDoomBypassExternalDamageRules
+        );
+
+        logger::info(
+            "SkyDoom destructible hit: ref={:08X} base={:08X} damage={}",
+            ref->GetFormID(),
+            base->GetFormID(),
+            damage
+        );
+    }
+
     void ApplyDoomPistolDamageToCrosshairActor(
         std::int32_t doomDamage
     )
     {
+
+        // SKYDOOM_DESTRUCTIBLES
+        DamageSkyDoomDestructibleAlongAim(
+            doomDamage,
+            SKYDOOM_PISTOL_HITSCAN_RANGE
+        );
+
         // SKYDOOM_ACTOR_HITBOX_V4
 
         /*
@@ -12767,6 +12956,13 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 
     )
     {
+
+        // SKYDOOM_DESTRUCTIBLES
+        DamageSkyDoomDestructibleAlongAim(
+            doomDamage,
+            SKYDOOM_PISTOL_HITSCAN_RANGE
+        );
+
         // SKYDOOM_ACTOR_HITBOX_V4
 
         /*
@@ -13944,6 +14140,13 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 
     )
     {
+
+        // SKYDOOM_DESTRUCTIBLES
+        DamageSkyDoomDestructibleAlongAim(
+            doomDamage,
+            SKYDOOM_PISTOL_HITSCAN_RANGE
+        );
+
         // SKYDOOM_ACTOR_HITBOX_V4
 
         /*
@@ -15123,6 +15326,13 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 
     )
     {
+
+        // SKYDOOM_DESTRUCTIBLES
+        DamageSkyDoomDestructibleAlongAim(
+            doomDamage,
+            150.0f  // melee reach
+        );
+
         // SKYDOOM_ACTOR_HITBOX_V4
 
         /*
