@@ -8,8 +8,11 @@
 #include "skydoom_protocol.h"
 
 #include <Windows.h>
+#include <bcrypt.h>
+#include <sddl.h>
 
 #pragma comment(lib, "Advapi32.lib")
+#pragma comment(lib, "Bcrypt.lib")
 
 #include <d3d11.h>
 #include <d3dcompiler.h>
@@ -46,6 +49,9 @@ namespace
 	// ========================================================
 
 	HANDLE g_mapping = nullptr;
+
+	// Per-session mapping name, passed to the guest via SKYDOOM_MAPPING_ARG.
+	std::string g_mappingName;
 
 	SkyDoomSharedState* g_state =
 		nullptr;
@@ -6655,32 +6661,188 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 		}
 	}
 
+	// SKYDOOM_PER_LAUNCH_MAPPING
+	//
+	// A fixed, well-known mapping name let any process attach to (or
+	// squat) the bridge. Each session now uses an unguessable name and a
+	// DACL that grants access to the current user only.
+
+	bool SkyDoomCreateMappingName(
+		std::string& a_name)
+	{
+		std::array<std::uint8_t, 16> random{};
+
+		if (
+			!BCRYPT_SUCCESS(
+				BCryptGenRandom(
+					nullptr,
+					random.data(),
+					static_cast<ULONG>(
+						random.size()),
+					BCRYPT_USE_SYSTEM_PREFERRED_RNG))) {
+			return false;
+		}
+
+		constexpr char hexDigits[] =
+			"0123456789abcdef";
+
+		a_name =
+			SKYDOOM_MAPPING_NAME_PREFIX;
+
+		for (const auto byte : random) {
+			a_name.push_back(
+				hexDigits[byte >> 4]);
+
+			a_name.push_back(
+				hexDigits[byte & 0x0F]);
+		}
+
+		return true;
+	}
+
+	// Returns a LocalAlloc'd descriptor (free with LocalFree), or nullptr.
+	PSECURITY_DESCRIPTOR SkyDoomCreateUserOnlyDescriptor()
+	{
+		HANDLE token =
+			nullptr;
+
+		if (
+			!OpenProcessToken(
+				GetCurrentProcess(),
+				TOKEN_QUERY,
+				&token)) {
+			return nullptr;
+		}
+
+		DWORD size =
+			0;
+
+		GetTokenInformation(
+			token,
+			TokenUser,
+			nullptr,
+			0,
+			&size);
+
+		std::vector<std::uint8_t> tokenUser(
+			size);
+
+		PSECURITY_DESCRIPTOR descriptor =
+			nullptr;
+
+		LPWSTR sid =
+			nullptr;
+
+		if (
+			size != 0 &&
+			GetTokenInformation(
+				token,
+				TokenUser,
+				tokenUser.data(),
+				size,
+				&size) &&
+			ConvertSidToStringSidW(
+				reinterpret_cast<TOKEN_USER*>(
+					tokenUser.data())
+					->User.Sid,
+				&sid)) {
+			const std::wstring sddl =
+				L"D:P(A;;GA;;;" +
+				std::wstring(sid) +
+				L")";
+
+			ConvertStringSecurityDescriptorToSecurityDescriptorW(
+				sddl.c_str(),
+				SDDL_REVISION_1,
+				&descriptor,
+				nullptr);
+
+			LocalFree(
+				sid);
+		}
+
+		CloseHandle(
+			token);
+
+		return descriptor;
+	}
+
 	bool InitSharedMemory()
 	{
-		g_mapping =
-			CreateFileMappingA(
-				INVALID_HANDLE_VALUE,
-				nullptr,
-				PAGE_READWRITE,
-				0,
-				sizeof(
-					SkyDoomSharedState),
-				SKYDOOM_MAPPING_NAME);
-
-		if (!g_mapping) {
+		if (
+			!SkyDoomCreateMappingName(
+				g_mappingName)) {
 			logger::error(
-				"CreateFileMappingA failed. Win32 error: {}",
-				GetLastError());
+				"Could not generate a SkyDoom shared memory name");
 
 			return false;
 		}
 
+		PSECURITY_DESCRIPTOR descriptor =
+			SkyDoomCreateUserOnlyDescriptor();
+
+		if (!descriptor) {
+			logger::warn(
+				"Could not build a user-only DACL; using the default "
+				"descriptor for SkyDoom shared memory");
+		}
+
+		SECURITY_ATTRIBUTES attributes{};
+
+		attributes.nLength =
+			sizeof(
+				attributes);
+
+		attributes.lpSecurityDescriptor =
+			descriptor;
+
+		attributes.bInheritHandle =
+			FALSE;
+
+		g_mapping =
+			CreateFileMappingA(
+				INVALID_HANDLE_VALUE,
+				descriptor ?
+					&attributes :
+					nullptr,
+				PAGE_READWRITE,
+				0,
+				sizeof(
+					SkyDoomSharedState),
+				g_mappingName.c_str());
+
 		const DWORD creationStatus =
 			GetLastError();
 
-		const bool newlyCreated =
-			creationStatus !=
-			ERROR_ALREADY_EXISTS;
+		if (descriptor) {
+			LocalFree(
+				descriptor);
+		}
+
+		if (!g_mapping) {
+			logger::error(
+				"CreateFileMappingA failed. Win32 error: {}",
+				creationStatus);
+
+			return false;
+		}
+
+		// The name is random, so an existing object means someone else
+		// created it first. Never attach to a mapping we did not create.
+		if (
+			creationStatus ==
+			ERROR_ALREADY_EXISTS) {
+			logger::error(
+				"SkyDoom shared memory name was already in use; refusing to attach");
+
+			CloseHandle(
+				g_mapping);
+
+			g_mapping =
+				nullptr;
+
+			return false;
+		}
 
 		g_state =
 			static_cast<
@@ -6708,7 +6870,7 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 		}
 
 		InitializeProtocolIfNeeded(
-			newlyCreated);
+			true);
 
 		g_state->skyrim.running =
 			1;
@@ -7090,6 +7252,15 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 
 		commandLine +=
 			L" -skydoomguest";
+
+		// SKYDOOM_PER_LAUNCH_MAPPING: hex suffix only, so no quoting needed.
+		commandLine +=
+			L" " +
+			SkyDoomUtf8ToWide(
+				SKYDOOM_MAPPING_ARG) +
+			L" " +
+			SkyDoomUtf8ToWide(
+				g_mappingName);
 
 		STARTUPINFOW
 		startupInfo{};

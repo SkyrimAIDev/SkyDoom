@@ -3,7 +3,14 @@
 
 #include <stdint.h>
 
-#define SKYDOOM_MAPPING_NAME "Local\\SkyDoom_Guest_v11"
+/*
+    The host creates a uniquely named mapping per session (this prefix plus
+    a random suffix) and passes the full name to the guest with
+    SKYDOOM_MAPPING_ARG. The guest only ever opens that mapping.
+*/
+#define SKYDOOM_MAPPING_NAME_PREFIX "Local\\SkyDoom_Guest_v11_"
+#define SKYDOOM_MAPPING_NAME_MAX    128
+#define SKYDOOM_MAPPING_ARG         "-skydoommap"
 
 #define SKYDOOM_MAGIC   0x314D4453u
 #define SKYDOOM_VERSION 11u

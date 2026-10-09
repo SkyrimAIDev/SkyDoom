@@ -228,36 +228,6 @@ static void SkyDoom_ClearHeldInput(void)
 }
 
 
-static void SkyDoom_InitializeProtocolIfNeeded(int newly_created)
-{
-    if (skydoom_state == NULL)
-    {
-        return;
-    }
-
-    if (newly_created || skydoom_state->magic != SKYDOOM_MAGIC ||
-        skydoom_state->version != SKYDOOM_VERSION ||
-        skydoom_state->struct_size != sizeof(SkyDoomSharedState))
-    {
-        ZeroMemory(skydoom_state, sizeof(SkyDoomSharedState));
-
-        skydoom_state->magic = SKYDOOM_MAGIC;
-
-        skydoom_state->version = SKYDOOM_VERSION;
-
-        skydoom_state->struct_size = (uint32_t) sizeof(SkyDoomSharedState);
-
-        skydoom_state->protocol_flags = SKYDOOM_PROTOCOL_FLAG_GUEST_MODE;
-
-        skydoom_state->overlay.width = SKYDOOM_OVERLAY_WIDTH;
-
-        skydoom_state->overlay.height = SKYDOOM_OVERLAY_HEIGHT;
-
-        skydoom_state->overlay.flags = SKYDOOM_OVERLAY_FLAG_WEAPON;
-    }
-}
-
-
 static int SkyDoom_SkyrimIsFresh(void)
 {
     ULONGLONG now;
@@ -2638,8 +2608,9 @@ overlay->frame_id++;
 
 int SkyDoom_SharedInit(void)
 {
-    DWORD creation_status;
-    int newly_created;
+    const char *mapping_name;
+    size_t prefix_length;
+    int arg;
 
     skydoom_guest_mode = M_ParmExists("-skydoomguest");
 
@@ -2653,18 +2624,35 @@ int SkyDoom_SharedInit(void)
         return 0;
     }
 
+    /*
+        SKYDOOM_PER_LAUNCH_MAPPING: the host creates a uniquely named
+        mapping and passes its name here. Only ever open that mapping -
+        never create one - and leave initialisation to the host.
+    */
+    arg = M_CheckParmWithArgs(SKYDOOM_MAPPING_ARG, 1);
+
+    if (arg == 0)
+    {
+        return 0;
+    }
+
+    mapping_name = myargv[arg + 1];
+
+    prefix_length = strlen(SKYDOOM_MAPPING_NAME_PREFIX);
+
+    if (strncmp(mapping_name, SKYDOOM_MAPPING_NAME_PREFIX, prefix_length) != 0 ||
+        strlen(mapping_name) > SKYDOOM_MAPPING_NAME_MAX)
+    {
+        return 0;
+    }
+
     skydoom_mapping =
-        CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0,
-                           sizeof(SkyDoomSharedState), SKYDOOM_MAPPING_NAME);
+        OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, mapping_name);
 
     if (skydoom_mapping == NULL)
     {
         return 0;
     }
-
-    creation_status = GetLastError();
-
-    newly_created = creation_status != ERROR_ALREADY_EXISTS;
 
     skydoom_state = (SkyDoomSharedState *) MapViewOfFile(
         skydoom_mapping, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(SkyDoomSharedState));
@@ -2678,7 +2666,20 @@ int SkyDoom_SharedInit(void)
         return 0;
     }
 
-    SkyDoom_InitializeProtocolIfNeeded(newly_created);
+    if (skydoom_state->magic != SKYDOOM_MAGIC ||
+        skydoom_state->version != SKYDOOM_VERSION ||
+        skydoom_state->struct_size != sizeof(SkyDoomSharedState))
+    {
+        UnmapViewOfFile(skydoom_state);
+
+        skydoom_state = NULL;
+
+        CloseHandle(skydoom_mapping);
+
+        skydoom_mapping = NULL;
+
+        return 0;
+    }
 
     SkyDoom_ClearHeldInput();
 
