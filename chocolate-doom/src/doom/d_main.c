@@ -231,12 +231,14 @@ boolean D_Display (void)
 	R_RenderPlayerView (&players[displayplayer]);
 
     if (gamestate == GS_LEVEL && gametic)
-	// SKYDOOM_NATIVE_PICKUP_MESSAGES_V15_6
-	        SkyDoom_OverlayCaptureHUDBefore();
-	
-	        HU_Drawer();
-	
-	        SkyDoom_OverlayCaptureHUDAfter();
+    {
+        // SKYDOOM_NATIVE_PICKUP_MESSAGES_V15_6
+        SkyDoom_OverlayCaptureHUDBefore();
+
+        HU_Drawer();
+
+        SkyDoom_OverlayCaptureHUDAfter();
+    }
 
     // SKYDOOM_CAPTURE_STATUS_BAR_V4
     if (gamestate == GS_LEVEL && gametic)
