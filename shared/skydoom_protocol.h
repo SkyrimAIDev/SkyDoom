@@ -79,6 +79,10 @@
 #define SKYDOOM_INPUT_WEAPON_PLASMA  14u
 #define SKYDOOM_INPUT_WEAPON_BFG     15u
 
+/* SKYDOOM_WEAPON_CYCLE: controller-friendly next / previous weapon. */
+#define SKYDOOM_INPUT_WEAPON_NEXT    16u
+#define SKYDOOM_INPUT_WEAPON_PREV    17u
+
 
 #define SKYDOOM_COMBAT_RING_ENTRIES 256u
 #define SKYDOOM_COMBAT_RING_MASK    255u

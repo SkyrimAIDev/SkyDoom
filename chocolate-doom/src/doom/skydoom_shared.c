@@ -353,6 +353,75 @@ static void SkyDoom_PushCombatEvent(
 
 );
 
+/*
+    SKYDOOM_WEAPON_CYCLE
+
+    Next / previous weapon (controller bindings), in Doom's slot order.
+    Both melee weapons stay selectable, matching the SkyDoom melee slot's
+    fist <-> chainsaw behaviour. Cycling starts from any weapon already
+    pending, so quick repeated presses keep advancing.
+*/
+static const weapontype_t skydoom_weapon_cycle[] =
+{
+    wp_fist, wp_chainsaw, wp_pistol, wp_shotgun, wp_supershotgun,
+    wp_chaingun, wp_missile, wp_plasma, wp_bfg
+};
+
+static void SkyDoom_CycleWeapon(int direction)
+{
+    const int count =
+        (int) (sizeof(skydoom_weapon_cycle) / sizeof(skydoom_weapon_cycle[0]));
+    const player_t *player = &players[consoleplayer];
+    weapontype_t current;
+    weapontype_t candidate;
+    int start;
+    int step;
+
+    if (skydoom_pending_weapon >= 0)
+    {
+        current = (weapontype_t) skydoom_pending_weapon;
+    }
+    else if (player->pendingweapon != wp_nochange)
+    {
+        current = player->pendingweapon;
+    }
+    else
+    {
+        current = player->readyweapon;
+    }
+
+    for (start = 0; start < count; ++start)
+    {
+        if (skydoom_weapon_cycle[start] == current)
+        {
+            break;
+        }
+    }
+
+    if (start == count)
+    {
+        start = 0;
+    }
+
+    for (step = 1; step < count; ++step)
+    {
+        candidate =
+            skydoom_weapon_cycle[(start + count + direction * step) % count];
+
+        if (candidate == wp_supershotgun && gamemode != commercial)
+        {
+            continue;
+        }
+
+        if (player->weaponowned[candidate])
+        {
+            skydoom_pending_weapon = candidate;
+
+            return;
+        }
+    }
+}
+
 static void SkyDoom_ApplyInputEvent(const SkyDoomInputEvent *event)
 {
     int down;
@@ -1387,6 +1456,27 @@ if (
             break;
 
 
+        // SKYDOOM_WEAPON_CYCLE
+        case SKYDOOM_INPUT_WEAPON_NEXT:
+
+            if (down)
+            {
+                SkyDoom_CycleWeapon(1);
+            }
+
+            break;
+
+
+        case SKYDOOM_INPUT_WEAPON_PREV:
+
+            if (down)
+            {
+                SkyDoom_CycleWeapon(-1);
+            }
+
+            break;
+
+
         default:
 
             break;
@@ -1596,6 +1686,8 @@ static void SkyDoom_InjectGuestCommand(player_t *player)
 
         skydoom_pending_weapon == wp_pistol ||
         skydoom_pending_weapon == wp_shotgun ||
+        // SKYDOOM_WEAPON_CYCLE (Doom II only; cycling skips it otherwise)
+        skydoom_pending_weapon == wp_supershotgun ||
         skydoom_pending_weapon == wp_chaingun ||
         skydoom_pending_weapon == wp_fist ||
         skydoom_pending_weapon == wp_chainsaw ||
