@@ -139,6 +139,7 @@ namespace
 	//
 	// Advanced/testing overrides:
 	//   SKYDOOM_DOOM_EXE  = full path to chocolate-doom.exe
+	//                       (only with the SKYDOOM_DEV_OVERRIDES CMake option)
 	//   SKYDOOM_WAD_PATH  = full path to DOOM.WAD
 
 	std::wstring g_doomExePath;
@@ -815,6 +816,7 @@ namespace
 	{
 		a_exePath.clear();
 
+#ifdef SKYDOOM_DEV_OVERRIDES
 		std::wstring overridePath;
 
 		if (
@@ -828,6 +830,7 @@ namespace
 
 			return true;
 		}
+#endif
 
 		std::wstring pluginDirectory;
 

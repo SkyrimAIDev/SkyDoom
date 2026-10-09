@@ -155,6 +155,24 @@ target_include_directories(
 )
 
 
+# SKYDOOM_DEV_OVERRIDES lets the SKYDOOM_DOOM_EXE environment variable
+# point the plugin at any executable. Useful while developing the guest,
+# but it must never ship in a release build.
+option(
+    SKYDOOM_DEV_OVERRIDES
+    "Allow SKYDOOM_DOOM_EXE to replace the bundled Chocolate Doom runtime"
+    OFF
+)
+
+if(SKYDOOM_DEV_OVERRIDES)
+    target_compile_definitions(
+        ${PROJECT_NAME}
+        PRIVATE
+        SKYDOOM_DEV_OVERRIDES=1
+    )
+endif()
+
+
 # ============================================================
 # NATIVE D3D11 SKYDOOM RENDERER
 # ============================================================
