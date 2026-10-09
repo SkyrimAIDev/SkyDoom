@@ -1421,6 +1421,7 @@ static void SkyDoom_ConsumeInputRing(void)
 
     uint32_t head;
     uint32_t tail;
+    uint32_t processed;
 
     if (skydoom_state == NULL)
     {
@@ -1429,7 +1430,12 @@ static void SkyDoom_ConsumeInputRing(void)
 
     ring = &skydoom_state->input;
 
-    for (;;)
+    /*
+        The ring counters live in shared memory, so never trust them:
+        process at most one ring's worth of events per tic, and resync
+        if head has run further ahead of tail than the ring can hold.
+    */
+    for (processed = 0; processed < SKYDOOM_INPUT_RING_ENTRIES; ++processed)
     {
         head = ring->head;
 
@@ -1437,6 +1443,13 @@ static void SkyDoom_ConsumeInputRing(void)
 
         if (tail == head)
         {
+            break;
+        }
+
+        if ((uint32_t) (head - tail) > SKYDOOM_INPUT_RING_ENTRIES)
+        {
+            ring->tail = head;
+
             break;
         }
 
