@@ -7028,6 +7028,14 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 			head + 1u;
 	}
 
+	// SKYDOOM_INPUT_BINDINGS (defined after DoomHeartbeatIsFresh below).
+	bool g_inputHookInstalled =
+		false;
+
+	RE::InputEvent* HandleSkyDoomBindings(
+		RE::InputEvent* a_events,
+		bool a_allowBlocking);
+
 	class SkyDoomInputSink final :
 		public RE::BSTEventSink<
 			RE::InputEvent*>
@@ -7055,6 +7063,14 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 				!*a_eventList) {
 				return RE::BSEventNotifyControl::
 					kContinue;
+			}
+
+			// Without the dispatch hook, bindings still work here; they
+			// just cannot be kept from Skyrim.
+			if (!g_inputHookInstalled) {
+				HandleSkyDoomBindings(
+					*a_eventList,
+					false);
 			}
 
 			auto* ui =
@@ -7229,6 +7245,295 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 
 		return (now - heartbeat) <=
 		       DOOM_FRESH_MS;
+	}
+
+	// ========================================================
+	// SKYDOOM INPUT BINDINGS
+	// ========================================================
+
+	// SKYDOOM_INPUT_BINDINGS
+	//
+	// DOOM actions (Settings.h) are read from Skyrim's own input queue, so
+	// keyboard, mouse and gamepad all work and follow the MCM bindings.
+	// While SkyDoom is active the input-dispatch hook can also remove bound
+	// buttons from the queue before PlayerControls/MenuControls see them.
+
+	struct SkyDoomBindingAction
+	{
+		std::uint16_t type;
+		std::uint16_t code;
+	};
+
+	// Indexed by SkyDoom::Settings::Action.
+	constexpr std::array<SkyDoomBindingAction, SkyDoom::Settings::kActionCount>
+		kSkyDoomBindingActions{ {
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_MELEE },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_PISTOL },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_SHOTGUN },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_CHAINGUN },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_ROCKET },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_PLASMA },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_BFG },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_NEXT },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_PREV },
+			{ SKYDOOM_INPUT_EVENT_MUSIC_TOGGLE, 0 },
+		} };
+
+	// Keys whose key-down was kept from Skyrim; their held/up events are
+	// kept from Skyrim too, so no control is left stuck down. Main thread.
+	std::array<bool, SKSE::InputMap::kMaxMacros>
+		g_skyDoomSwallowedKeys{};
+
+	// SKSE key code (keyboard 0-255, mouse 256-265, gamepad 266-281), or -1.
+	std::int32_t SkyDoomKeyCode(
+		const RE::ButtonEvent& a_button)
+	{
+		const auto id =
+			a_button.GetIDCode();
+
+		std::uint32_t code =
+			SKSE::InputMap::kMaxMacros;
+
+		switch (a_button.GetDevice()) {
+		case RE::INPUT_DEVICE::kKeyboard:
+			code = id;
+			break;
+
+		case RE::INPUT_DEVICE::kMouse:
+			code = SKSE::InputMap::kMacro_MouseButtonOffset + id;
+			break;
+
+		case RE::INPUT_DEVICE::kGamepad:
+			// Also maps PlayStation controllers correctly.
+			code = SKSE::InputMap::GamepadMaskToKeycode(id);
+			break;
+
+		default:
+			break;
+		}
+
+		return code < SKSE::InputMap::kMaxMacros ?
+			static_cast<std::int32_t>(code) :
+			-1;
+	}
+
+	// True only during normal gameplay with the DOOM guest connected: never
+	// while a menu (including the MCM key-capture dialog) has input focus.
+	bool SkyDoomBindingsActive()
+	{
+		if (
+			!g_state ||
+			!g_state->skyrim.in_game ||
+			!DoomHeartbeatIsFresh()) {
+			return false;
+		}
+
+		auto* ui =
+			RE::UI::GetSingleton();
+
+		if (
+			!ui ||
+			ui->GameIsPaused()) {
+			return false;
+		}
+
+		auto* controlMap =
+			RE::ControlMap::GetSingleton();
+
+		if (!controlMap) {
+			return false;
+		}
+
+		const auto& runtime =
+			controlMap->GetRuntimeData();
+
+		return
+			runtime.textEntryCount == 0 &&
+			!runtime.contextPriorityStack.empty() &&
+			runtime.contextPriorityStack.back() ==
+				RE::UserEvents::INPUT_CONTEXT_ID::kGameplay;
+	}
+
+	// Sends bound actions to DOOM and returns the event list Skyrim should
+	// receive (with swallowed events unlinked when a_allowBlocking is set).
+	RE::InputEvent* HandleSkyDoomBindings(
+		RE::InputEvent* a_events,
+		bool a_allowBlocking)
+	{
+		std::array<SkyDoom::Settings::Binding, SkyDoom::Settings::kActionCount> bindings;
+		bool blockSkyrimInput;
+
+		{
+			std::scoped_lock lock(
+				g_settingsMutex);
+
+			bindings =
+				g_settings.bindings;
+
+			blockSkyrimInput =
+				g_settings.blockSkyrimInput;
+		}
+
+		const bool active =
+			SkyDoomBindingsActive();
+
+		const bool block =
+			a_allowBlocking &&
+			blockSkyrimInput;
+
+		RE::InputEvent* head =
+			nullptr;
+
+		RE::InputEvent** link =
+			&head;
+
+		for (
+			auto* event = a_events;
+			event;) {
+			auto* const next =
+				event->next;
+
+			bool swallow =
+				false;
+
+			if (const auto* button = event->AsButtonEvent()) {
+				const auto code =
+					SkyDoomKeyCode(
+						*button);
+
+				if (code >= 0) {
+					if (button->IsDown()) {
+						std::optional<std::size_t> action;
+
+						for (
+							std::size_t i = 0;
+							i < bindings.size() && !action;
+							++i) {
+							if (
+								bindings[i].keyboard == code ||
+								bindings[i].gamepad == code) {
+								action = i;
+							}
+						}
+
+						if (
+							action &&
+							active) {
+							PushInputEvent(
+								kSkyDoomBindingActions[*action].type,
+								kSkyDoomBindingActions[*action].code,
+								1);
+
+							swallow =
+								block;
+
+							// The mouse wheel sends no held/up events.
+							const bool isWheel =
+								code >= SKSE::InputMap::kMacro_MouseWheelOffset &&
+								code < SKSE::InputMap::kMacro_GamepadOffset;
+
+							if (
+								block &&
+								!isWheel) {
+								g_skyDoomSwallowedKeys[code] =
+									true;
+							}
+						}
+					} else if (g_skyDoomSwallowedKeys[code]) {
+						swallow =
+							true;
+
+						if (button->IsUp()) {
+							g_skyDoomSwallowedKeys[code] =
+								false;
+						}
+					}
+				}
+			}
+
+			if (!swallow) {
+				*link =
+					event;
+
+				link =
+					&event->next;
+			}
+
+			event =
+				next;
+		}
+
+		*link =
+			nullptr;
+
+		return head;
+	}
+
+	// SKYDOOM_INPUT_DISPATCH_HOOK
+	//
+	// Replaces the call to BSTEventSource<InputEvent*>::SendEvent in the
+	// input manager's per-frame poll (verified on 1.6.1170/1.6.1179; the
+	// same call site is used by Community Shaders, OpenAnimationReplacer,
+	// TrueHotkeys and others). The game rebuilds the queue every frame, so
+	// relinking `next` pointers here does not persist.
+	struct SkyDoomInputDispatchHook
+	{
+		static void thunk(
+			RE::BSTEventSource<RE::InputEvent*>* a_dispatcher,
+			RE::InputEvent* const* a_events)
+		{
+			if (
+				!a_events ||
+				!*a_events) {
+				return func(
+					a_dispatcher,
+					a_events);
+			}
+
+			RE::InputEvent* const filtered[] = {
+				HandleSkyDoomBindings(
+					*a_events,
+					true)
+			};
+
+			func(
+				a_dispatcher,
+				filtered);
+		}
+
+		static inline REL::Relocation<decltype(thunk)> func;
+	};
+
+	bool InstallInputDispatchHook()
+	{
+		const REL::Relocation<std::uintptr_t> site{
+			RELOCATION_ID(67315, 68617),
+			REL::Relocate(0x7B, 0x7B, 0x81)
+		};
+
+		// Refuse to patch anything that is not the expected call rel32.
+		if (
+			*reinterpret_cast<const std::uint8_t*>(
+				site.address()) != 0xE8) {
+			logger::warn(
+				"SkyDoom input hook site not recognised; "
+				"bindings will work but cannot be kept from Skyrim");
+
+			return false;
+		}
+
+		SkyDoomInputDispatchHook::func =
+			SKSE::GetTrampoline().write_call<5>(
+				site.address(),
+				SkyDoomInputDispatchHook::thunk);
+
+		g_inputHookInstalled =
+			true;
+
+		logger::info(
+			"SkyDoom input dispatch hook installed");
+
+		return true;
 	}
 
 	bool LaunchDoomGuest()
@@ -9343,510 +9648,58 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 
 
     void PollPhysicalDoomFire()
-
     {
-
         // SKYDOOM_REAL_SHOTGUN_V6
-
         // SKYDOOM_REAL_CHAINGUN_V9
-
         // SKYDOOM_REAL_MELEE_V10
-
         // SKYDOOM_REAL_ROCKET_V11
-
-
-
-        static bool physicalMeleeKeyDown = false;
-
-        static bool physicalPistolKeyDown = false;
-
-        static bool physicalShotgunKeyDown = false;
-
-        static bool physicalChaingunKeyDown = false;
-
-        static bool physicalRocketKeyDown = false;
-        static bool physicalPlasmaKeyDown = false;
-        static bool physicalBfgKeyDown = false;
-
         // SKYDOOM_MUSIC_TOGGLE_V15_8
-        static bool
-            physicalMusicToggleKeyDown =
-                false;
-
-
-
-
+        //
+        // SKYDOOM_INPUT_BINDINGS: the weapon slots (1-7) and music toggle
+        // (F10) moved to configurable bindings handled by
+        // HandleSkyDoomBindings(). Left mouse button fire stays here.
 
         if (!g_state)
-
         {
-
             return;
-
         }
 
-
-
-
-
         const bool active =
-
             g_state->skyrim.in_game &&
-
             !g_state->skyrim.paused &&
-
             DoomHeartbeatIsFresh() &&
-
             SkyDoomHasForegroundFocus();
-
-
-
-
 
         bool physicalFireDown = false;
 
-        bool meleeKeyDown = false;
-
-        bool pistolKeyDown = false;
-
-        bool shotgunKeyDown = false;
-
-        bool chaingunKeyDown = false;
-
-        bool rocketKeyDown = false;
-        bool plasmaKeyDown = false;
-        bool bfgKeyDown = false;
-
-        bool musicToggleKeyDown =
-            false;
-
-
-
-
-
         if (active)
-
         {
-
-            // SKYDOOM_MUSIC_TOGGLE_V15_8
-            musicToggleKeyDown =
-                (
-                    GetAsyncKeyState(
-                        VK_F10
-                    ) &
-                    0x8000
-                ) !=
-                0;
-
             physicalFireDown =
-
                 (
-
                     GetAsyncKeyState(
-
                         VK_LBUTTON
-
-                    ) &
-
-                    0x8000
-
-                ) != 0;
-
-
-
-
-
-            meleeKeyDown =
-
-                (
-
-                    GetAsyncKeyState(
-
-                        '1'
-
-                    ) &
-
-                    0x8000
-
-                ) != 0;
-
-
-
-
-
-            pistolKeyDown =
-
-                (
-
-                    GetAsyncKeyState(
-
-                        '2'
-
-                    ) &
-
-                    0x8000
-
-                ) != 0;
-
-
-
-
-
-            shotgunKeyDown =
-
-                (
-
-                    GetAsyncKeyState(
-
-                        '3'
-
-                    ) &
-
-                    0x8000
-
-                ) != 0;
-
-
-
-
-
-            chaingunKeyDown =
-
-                (
-
-                    GetAsyncKeyState(
-
-                        '4'
-
-                    ) &
-
-                    0x8000
-
-                ) != 0;
-
-
-
-
-
-            rocketKeyDown =
-
-                (
-
-                    GetAsyncKeyState(
-
-                        '5'
-
-                    ) &
-
-                    0x8000
-
-                ) != 0;
-
-            plasmaKeyDown =
-                (
-                    GetAsyncKeyState(
-                        '6'
                     ) &
                     0x8000
                 ) != 0;
-
-
-
-            bfgKeyDown =
-
-                (
-
-                    GetAsyncKeyState(
-
-                        '7'
-
-                    ) &
-
-                    0x8000
-
-                ) != 0;
-
         }
 
-
-
-
-
         if (
-
-            meleeKeyDown &&
-
-            !physicalMeleeKeyDown
-
-        )
-
-        {
-
-            PushInputEvent(
-
-                SKYDOOM_INPUT_EVENT_BUTTON,
-
-                SKYDOOM_INPUT_WEAPON_MELEE,
-
-                1
-
-            );
-
-        }
-
-
-
-
-
-        if (
-
-            pistolKeyDown &&
-
-            !physicalPistolKeyDown
-
-        )
-
-        {
-
-            PushInputEvent(
-
-                SKYDOOM_INPUT_EVENT_BUTTON,
-
-                SKYDOOM_INPUT_WEAPON_PISTOL,
-
-                1
-
-            );
-
-        }
-
-
-
-
-
-        if (
-
-            shotgunKeyDown &&
-
-            !physicalShotgunKeyDown
-
-        )
-
-        {
-
-            PushInputEvent(
-
-                SKYDOOM_INPUT_EVENT_BUTTON,
-
-                SKYDOOM_INPUT_WEAPON_SHOTGUN,
-
-                1
-
-            );
-
-        }
-
-
-
-
-
-        if (
-
-            chaingunKeyDown &&
-
-            !physicalChaingunKeyDown
-
-        )
-
-        {
-
-            PushInputEvent(
-
-                SKYDOOM_INPUT_EVENT_BUTTON,
-
-                SKYDOOM_INPUT_WEAPON_CHAINGUN,
-
-                1
-
-            );
-
-        }
-
-
-
-
-
-        if (
-
-            rocketKeyDown &&
-
-            !physicalRocketKeyDown
-
-        )
-
-        {
-
-            PushInputEvent(
-
-                SKYDOOM_INPUT_EVENT_BUTTON,
-
-                SKYDOOM_INPUT_WEAPON_ROCKET,
-
-                1
-
-            );
-
-        }
-
-
-
-
-
-        if (
-            plasmaKeyDown &&
-            !physicalPlasmaKeyDown
-        )
-        {
-            PushInputEvent(
-                SKYDOOM_INPUT_EVENT_BUTTON,
-                SKYDOOM_INPUT_WEAPON_PLASMA,
-                1
-            );
-        }
-
-
-        if (
-
-            bfgKeyDown &&
-
-            !physicalBfgKeyDown
-
-        )
-
-        {
-
-            PushInputEvent(
-
-                SKYDOOM_INPUT_EVENT_BUTTON,
-
-                SKYDOOM_INPUT_WEAPON_BFG,
-
-                1
-
-            );
-
-        }
-
-
-
-                /*
-            SKYDOOM_MUSIC_TOGGLE_V15_8
-
-            Rising edge only: holding F10 cannot rapidly flip the
-            state every Present frame.
-        */
-        if (
-            musicToggleKeyDown &&
-            !physicalMusicToggleKeyDown
-        )
-        {
-            PushInputEvent(
-                SKYDOOM_INPUT_EVENT_MUSIC_TOGGLE,
-                0,
-                1
-            );
-        }
-
-physicalMeleeKeyDown =
-
-            meleeKeyDown;
-
-
-
-        physicalPistolKeyDown =
-
-            pistolKeyDown;
-
-
-
-        physicalShotgunKeyDown =
-
-            shotgunKeyDown;
-
-
-
-        physicalChaingunKeyDown =
-
-            chaingunKeyDown;
-
-
-
-        physicalRocketKeyDown =
-
-            rocketKeyDown;
-
-        physicalPlasmaKeyDown =
-            plasmaKeyDown;
-
-        physicalBfgKeyDown =
-            bfgKeyDown;
-
-        physicalMusicToggleKeyDown =
-            musicToggleKeyDown;
-
-
-
-
-
-        if (
-
             physicalFireDown !=
-
             g_physicalFireDown
-
         )
-
         {
-
             g_physicalFireDown =
-
                 physicalFireDown;
 
-
-
-
-
             PushInputEvent(
-
                 SKYDOOM_INPUT_EVENT_BUTTON,
-
                 SKYDOOM_INPUT_FIRE,
-
                 physicalFireDown ?
-
                     1 :
-
                     0
-
             );
-
         }
-
     }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -40750,6 +40603,8 @@ SKSE::log::info(
 			return;
 		}
 
+		InstallInputDispatchHook();
+
 		if (
 			!InstallRenderHook()) {
 			logger::error(
@@ -40801,8 +40656,10 @@ SKSEPluginLoad(
 	const SKSE::LoadInterface*
 		a_skse)
 {
+	// 14 bytes of trampoline for the input-dispatch write_call<5>.
 	SKSE::Init(
-		a_skse);
+		a_skse,
+		{ .trampoline = true, .trampolineSize = 14 });
 
 	SetupLog();
 
