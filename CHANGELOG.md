@@ -8,9 +8,28 @@ first. Each build is made from its `release/<version>` branch, and its
 Each section starts with a `Status:` line (how far the build has been
 tested), followed by the changes since the previous build.
 
-## v0.1.10-beta - 2026-10-09
+## v0.1.11-beta - 2026-10-09
 
 Status: In testing.
+
+- New (off by default): Rockets bust doors (cheat), on the MCM General
+  page, for getting unstuck. A DOOM rocket blast unlocks every door it
+  reaches, even doors that need a key, and opens doors, gates and
+  portcullises, including doors barred from the other side and gates
+  worked by a lever. Load doors are only unlocked: walk through as usual.
+  It can skip puzzles and break quests, so turn it off again afterwards.
+  Blasting an owned lock while seen is a crime. Rubble, claw puzzle doors,
+  sealed doors, bridges and traps are not affected.
+- New: rocket explosions damage spider webs and other destructible objects,
+  like the other DOOM weapons.
+- Fixed: destroying a wooden barricade in one hit could leave its invisible
+  collision behind. Big hits on destructible objects now go through each
+  destruction stage in turn.
+
+## v0.1.10-beta - 2026-10-09
+
+Status: Tested on Skyrim 1.6.1170 (NGVO). The shotgun breaks locks as
+expected.
 
 - Fixed: the shotgun rarely broke locks. Skyrim's crosshair is hidden in
   DOOM combat, so it was hard to aim exactly at a lock. A blast now hits the
