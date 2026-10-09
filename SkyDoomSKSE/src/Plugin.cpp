@@ -16197,13 +16197,47 @@ physicalMeleeKeyDown =
 
 
 
+        /*
+
+            These counters come from another process, so bound them
+
+            to what DOOM can really produce. The pistol rolls
+
+            5 * (P_Random() % 3 + 1), i.e. at most 15 per shot. DOOM
+
+            publishes a shot's damage before bumping the serial, so
+
+            allow one extra in-flight shot.
+
+        */
+
+        constexpr std::uint64_t
+
+            kMaxPistolShotsPerSample =
+
+                64;
+
+        constexpr std::uint64_t
+
+            kMaxPistolDamagePerShot =
+
+                15;
+
+
+
         if (
 
             damageDelta == 0 ||
 
+            eventCount >
+
+                kMaxPistolShotsPerSample ||
+
             damageDelta >
 
-                2147483647ULL
+                (eventCount + 1) *
+
+                    kMaxPistolDamagePerShot
 
         )
 
