@@ -8,9 +8,27 @@ first. Each build is made from its `release/<version>` branch, and its
 Each section starts with a `Status:` line (how far the build has been
 tested), followed by the changes since the previous build.
 
-## v0.1.5-beta - 2026-10-09
+## v0.1.6-beta - 2026-10-09
 
 Status: In testing.
+
+- New: DOOM stashes in dungeons. The first time you enter a dungeon area in
+  a session, a few DOOM items appear on top of its chests, barrels and urns,
+  chosen by what you are lowest on.
+- New: MCM General page: Enable SkyDoom, DOOM combat (when a weapon is drawn
+  or always), DOOM music (in DOOM combat, always or off), and Keep stamina
+  full in DOOM combat.
+- New: MCM Balance page: DOOM weapon damage multiplier (0.1x-10x) and
+  damage taken in DOOM combat multiplier (0.1x-5x).
+- New: MCM Pickups page: turn enemy drops on or off, set the drop chance,
+  and turn dungeon stashes on or off.
+- Fixed: a DOOM item left in one interior could appear, and be picked up,
+  at the same spot in a different interior.
+
+## v0.1.5-beta - 2026-10-09
+
+Status: In testing. So far drawing and sheathing switch between DOOM combat
+and Skyrim as intended.
 
 - New: DOOM combat mode. With DOOM mode on, drawing a weapon switches to
   DOOM combat: DOOM HUD and weapons, DOOM controls, DOOM health and DOOM
