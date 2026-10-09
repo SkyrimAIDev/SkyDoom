@@ -3520,6 +3520,27 @@ void SkyDoom_SharedUpdate(void)
 
     player = &players[consoleplayer];
 
+    /*
+        SKYDOOM_COMBAT_MODE
+
+        DOOM music only plays while the host is in DOOM combat mode
+        (DOOM mode on and a weapon drawn). Pausing keeps the track
+        position for the next fight; F10 (S_SkyDoomToggleMusic) still
+        mutes it independently. Both calls are no-ops when already in
+        the requested state.
+    */
+    if (skydoom_guest_mode)
+    {
+        if (skydoom_state->skyrim.combat_mode && SkyDoom_SkyrimIsFresh())
+        {
+            S_ResumeSound();
+        }
+        else
+        {
+            S_PauseSound();
+        }
+    }
+
 
 
     /*

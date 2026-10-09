@@ -188,7 +188,8 @@ typedef struct SkyDoomSkyrimState
     float player_yaw;
     float player_pitch;
 
-    uint32_t reserved0;
+    /* SKYDOOM_COMBAT_MODE: 1 while DOOM mode is on and a weapon is drawn. */
+    uint32_t combat_mode;
 
     uint64_t heartbeat_ms;
     uint64_t update_counter;
