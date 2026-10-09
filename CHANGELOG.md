@@ -8,9 +8,20 @@ first. Each build is made from its `release/<version>` branch, and its
 Each section starts with a `Status:` line (how far the build has been
 tested), followed by the changes since the previous build.
 
-## v0.1.8-beta - 2026-10-09
+## v0.1.9-beta - 2026-10-09
 
 Status: In testing.
+
+- New: the DOOM shotgun breaks locks. A point-blank blast damages the lock
+  of a door or chest, and enough blasts break it: Novice 1, Apprentice 2,
+  Adept 3, Expert 4, Master 5. Locks that need a key cannot be broken.
+  Blasting an owned lock while seen is a crime, as picking it would be. Can
+  be turned off in the MCM (Shotgun breaks locks).
+
+## v0.1.8-beta - 2026-10-09
+
+Status: In testing. The pistol and shotgun broke the spider webs in Bleak
+Falls Barrow.
 
 - New: DOOM weapons break Skyrim's destructible objects, such as the spider
   webs that block dungeon passages, so you no longer have to leave DOOM
