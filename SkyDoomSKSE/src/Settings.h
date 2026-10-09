@@ -84,6 +84,10 @@ namespace SkyDoom::Settings
 		// and Skyrim damage before it reaches DOOM health.
 		float damageDealtMult = 1.0f;  // 0.1 - 10
 		float damageTakenMult = 1.0f;  // 0.1 - 5
+
+		// [Pickups] DOOM items dropped by killed enemies.
+		bool enemyDrops = true;
+		std::int32_t enemyDropChance = 100;  // percent
 	};
 
 	[[nodiscard]] Values Defaults();

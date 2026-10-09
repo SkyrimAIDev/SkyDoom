@@ -184,6 +184,13 @@ namespace
 	std::atomic<float> g_skyDoomDamageTakenMult =
 		1.0f;
 
+	// SKYDOOM_PICKUP_SETTINGS: MCM enemy drop options.
+	std::atomic_bool g_skyDoomEnemyDrops =
+		true;
+
+	std::atomic_int g_skyDoomEnemyDropChance =
+		100;
+
 	// DOOM weapon damage as applied to a Skyrim actor.
 	float SkyDoomScaledDamage(
 		std::int32_t a_doomDamage)
@@ -945,6 +952,17 @@ namespace
 			"SkyDoom settings: damageDealtMult={} damageTakenMult={}",
 			values.damageDealtMult,
 			values.damageTakenMult);
+
+		g_skyDoomEnemyDrops =
+			values.enemyDrops;
+
+		g_skyDoomEnemyDropChance =
+			values.enemyDropChance;
+
+		logger::info(
+			"SkyDoom settings: enemyDrops={} enemyDropChance={}%",
+			values.enemyDrops,
+			values.enemyDropChance);
 
 		std::scoped_lock lock(
 			g_settingsMutex);
@@ -35137,15 +35155,27 @@ void
 
             if (
                 doomEnabled &&
+                g_skyDoomEnemyDrops &&
                 !tracked->wasDead &&
                 isDead
             )
             {
+                // SKYDOOM_PICKUP_SETTINGS: enemy drop chance (MCM).
+                const bool dropRolled =
+                    SkyDoomNextPickupRandomV15_3(
+                        formId ^ 0x5D0Fu
+                    ) % 100u <
+                    static_cast<std::uint32_t>(
+                        g_skyDoomEnemyDropChance.load()
+                    );
+
                 const std::uint16_t
                     pickupType =
-                        ChooseSkyDoomResourcePickupV15_3(
-                            formId
-                        );
+                        dropRolled ?
+                            ChooseSkyDoomResourcePickupV15_3(
+                                formId
+                            ) :
+                            SKYDOOM_PICKUP_NONE;
 
                 if (
                     pickupType !=
@@ -35159,7 +35189,7 @@ void
                         scale
                     );
                 }
-                else
+                else if (dropRolled)
                 {
                     SKSE::log::info(
                         "[skydoomskse] PHYSICAL DOOM PICKUP skipped: all tracked Doom resources are full"
