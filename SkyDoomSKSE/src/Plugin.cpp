@@ -27,8 +27,10 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <format>
 #include <memory>
 #include <mutex>
+#include <random>
 #include <string>
 #include <thread>
 #include <unordered_set>
@@ -179,6 +181,9 @@ namespace
 		true;
 
 	std::atomic_bool g_skyDoomFirstPersonInCombat =
+		true;
+
+	std::atomic_bool g_skyDoomShotgunBreaksLocks =
 		true;
 
 	// SKYDOOM_BALANCE: MCM damage multipliers.
@@ -918,12 +923,13 @@ namespace
 					values.wadPath));
 
 		logger::info(
-			"SkyDoom settings: enabled={} combatMode={} musicMode={} keepStaminaFull={} firstPersonInCombat={}",
+			"SkyDoom settings: enabled={} combatMode={} musicMode={} keepStaminaFull={} firstPersonInCombat={} shotgunBreaksLocks={}",
 			values.enabled,
 			static_cast<int>(values.combatMode),
 			static_cast<int>(values.musicMode),
 			values.keepStaminaFull,
-			values.firstPersonInCombat);
+			values.firstPersonInCombat,
+			values.shotgunBreaksLocks);
 
 		// Apply Enable SkyDoom at startup, and afterwards only when the
 		// MCM value itself changes, so closing the MCM after an unrelated
@@ -952,6 +958,9 @@ namespace
 
 		g_skyDoomFirstPersonInCombat =
 			values.firstPersonInCombat;
+
+		g_skyDoomShotgunBreaksLocks =
+			values.shotgunBreaksLocks;
 
 		g_skyDoomDamageDealtMult =
 			values.damageDealtMult;
@@ -11743,8 +11752,10 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         kSkyDoomAimRayStartOffset =
             16.0f;
 
-    void DamageSkyDoomDestructibleAlongAim(
-        std::int32_t a_doomDamage,
+    // First non-actor reference along the camera aim ray within a_range,
+    // using the player's collision filter, so it finds what the player
+    // would bump into (doors, chests, webs). Main thread.
+    RE::TESObjectREFR* PickSkyDoomAimObject(
         float a_range
     )
     {
@@ -11760,7 +11771,7 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
             !camera->cameraRoot
         )
         {
-            return;
+            return nullptr;
         }
 
         auto* controller =
@@ -11773,7 +11784,7 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 
         if (!world)
         {
-            return;
+            return nullptr;
         }
 
         const auto& cameraWorld =
@@ -11788,7 +11799,7 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
             a_range <= kSkyDoomAimRayStartOffset
         )
         {
-            return;
+            return nullptr;
         }
 
         RE::hkVector4 playerHavok{};
@@ -11842,7 +11853,7 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
             !pick.rayOutput.rootCollidable
         )
         {
-            return;
+            return nullptr;
         }
 
         auto* ref =
@@ -11856,6 +11867,24 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
             ref->IsDisabled() ||
             ref->As<RE::Actor>()
         )
+        {
+            return nullptr;
+        }
+
+        return ref;
+    }
+
+    void DamageSkyDoomDestructibleAlongAim(
+        std::int32_t a_doomDamage,
+        float a_range
+    )
+    {
+        auto* ref =
+            PickSkyDoomAimObject(
+                a_range
+            );
+
+        if (!ref)
         {
             return;
         }
@@ -11891,6 +11920,328 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
             ref->GetFormID(),
             base->GetFormID(),
             damage
+        );
+    }
+
+
+    /*
+        SKYDOOM_LOCK_BASH
+
+        A point-blank DOOM shotgun blast damages the lock of the door or
+        container in the aim ray, and enough blasts break it: Novice 1,
+        Apprentice 2, Adept 3, Expert 4, Master 5. Locks that need a key
+        never break, so quest doors stay shut. Blasting an owned lock is
+        a crime if someone sees it, checked the way Skyrim checks lock
+        picking. All seven pellets of a shot arrive
+        within a tick or two, so pellets closer together than
+        kSkyDoomLockBlastGapMs count as one blast. Main thread.
+    */
+    constexpr float
+        kSkyDoomLockBashRange =
+            256.0f;  // about 3.6 m from the camera
+
+    // DOOM's shotgun refires about once a second.
+    constexpr std::uint64_t
+        kSkyDoomLockBlastGapMs =
+            400;
+
+    struct SkyDoomLockBashState
+    {
+        RE::FormID ref =
+            0;
+
+        std::uint64_t lastBlastMs =
+            0;
+
+        std::int32_t blasts =
+            0;
+
+        bool crimeReported =
+            false;
+    };
+
+    SkyDoomLockBashState g_skyDoomLockBash;
+
+    // Blasts needed to break a lock; 0 for unlocked or key-only locks.
+    std::int32_t SkyDoomLockBlastsNeeded(
+        RE::LOCK_LEVEL a_level
+    )
+    {
+        switch (a_level)
+        {
+        case RE::LOCK_LEVEL::kVeryEasy:  // Novice
+            return 1;
+        case RE::LOCK_LEVEL::kEasy:      // Apprentice
+            return 2;
+        case RE::LOCK_LEVEL::kAverage:   // Adept
+            return 3;
+        case RE::LOCK_LEVEL::kHard:      // Expert
+            return 4;
+        case RE::LOCK_LEVEL::kVeryHard:  // Master
+            return 5;
+        default:
+            return 0;
+        }
+    }
+
+    // The sound Skyrim plays when a picked lock opens.
+    constexpr const char*
+        kSkyDoomLockBrokenSound =
+            "UILockpickingUnlock";
+
+    /*
+        Same crime check as the lock picking menu (AE ID 51981, run on
+        each broken pick and on success): only for an owned lock
+        (GetOwner, which for containers includes the cell or encounter
+        zone owner), only while someone detects the player, after the
+        Mod Lockpicking Crime Chance perk entry point. An escaping
+        prisoner is flagged as escaping; otherwise the player raises a
+        trespass alarm, which finds the owner's crime faction and the
+        witnesses. Returns true if a crime was reported.
+    */
+    bool ReportSkyDoomLockCrime(
+        RE::TESObjectREFR* a_ref
+    )
+    {
+        auto* player =
+            RE::PlayerCharacter::GetSingleton();
+
+        auto* processLists =
+            RE::ProcessLists::GetSingleton();
+
+        auto* owner =
+            a_ref ?
+                a_ref->GetOwner() :
+                nullptr;
+
+        if (
+            !player ||
+            !processLists ||
+            !owner
+        )
+        {
+            return false;
+        }
+
+        std::uint32_t lineOfSightCount =
+            1;
+
+        if (
+            processLists->RequestHighestDetectionLevelAgainstActor(
+                player,
+                lineOfSightCount
+            ) <= 0
+        )
+        {
+            return false;
+        }
+
+        float chance =
+            1.0f;
+
+        RE::BGSEntryPoint::HandleEntryPoint(
+            RE::BGSEntryPoint::ENTRY_POINT::kModLockpickingCrimeChance,
+            player,
+            a_ref,
+            &chance
+        );
+
+        static std::minstd_rand rng{
+            static_cast<std::uint32_t>(
+                GetTickCount64()
+            )
+        };
+
+        if (
+            std::uniform_real_distribution<float>{ 0.0f, 1.0f }(rng) >=
+            chance
+        )
+        {
+            return false;
+        }
+
+        auto* prison =
+            player->GetPlayerRuntimeData().currentPrisonFaction;
+
+        if (
+            prison &&
+            prison->crimeData.crimevalues.escapeCrimeGold > 0
+        )
+        {
+            player->SetEscaping(
+                true,
+                false
+            );
+        }
+        else
+        {
+            player->TrespassAlarm(
+                a_ref,
+                owner,
+                -1
+            );
+        }
+
+        logger::info(
+            "SkyDoom lock bash: crime reported ref={:08X} owner={:08X}",
+            a_ref->GetFormID(),
+            owner->GetFormID()
+        );
+
+        return true;
+    }
+
+    void BashSkyDoomLockAlongAim()
+    {
+        if (!g_skyDoomShotgunBreaksLocks)
+        {
+            return;
+        }
+
+        auto* ref =
+            PickSkyDoomAimObject(
+                kSkyDoomLockBashRange
+            );
+
+        auto* base =
+            ref ?
+                ref->GetBaseObject() :
+                nullptr;
+
+        if (
+            !base ||
+            (
+                !base->Is(RE::FormType::Door) &&
+                !base->Is(RE::FormType::Container)
+            )
+        )
+        {
+            return;
+        }
+
+        const auto level =
+            ref->GetLockLevel();
+
+        if (level == RE::LOCK_LEVEL::kUnlocked)
+        {
+            return;
+        }
+
+        auto& state =
+            g_skyDoomLockBash;
+
+        const RE::FormID refId =
+            ref->GetFormID();
+
+        const std::uint64_t now =
+            GetTickCount64();
+
+        if (state.ref == refId)
+        {
+            // Another pellet of the blast already counted.
+            if (now - state.lastBlastMs < kSkyDoomLockBlastGapMs)
+            {
+                return;
+            }
+        }
+        else
+        {
+            state = {};
+            state.ref = refId;
+        }
+
+        state.lastBlastMs =
+            now;
+
+        const std::int32_t needed =
+            SkyDoomLockBlastsNeeded(
+                level
+            );
+
+        if (needed == 0)
+        {
+            RE::SendHUDMessage::ShowHUDMessage(
+                "This lock needs a key"
+            );
+
+            return;
+        }
+
+        ++state.blasts;
+
+        // Like a broken pick, any blast can be seen; one report per lock.
+        if (!state.crimeReported)
+        {
+            state.crimeReported =
+                ReportSkyDoomLockCrime(
+                    ref
+                );
+        }
+
+        if (state.blasts < needed)
+        {
+            const std::string text =
+                std::format(
+                    "Lock damaged ({}/{})",
+                    state.blasts,
+                    needed
+                );
+
+            RE::SendHUDMessage::ShowHUDMessage(
+                text.c_str(),
+                nullptr,
+                false
+            );
+
+            logger::info(
+                "SkyDoom lock bash: ref={:08X} level={} blast {}/{}",
+                refId,
+                static_cast<int>(level),
+                state.blasts,
+                needed
+            );
+
+            return;
+        }
+
+        auto* lock =
+            ref->GetLock();
+
+        if (!lock)
+        {
+            return;
+        }
+
+        // As the lock picking menu and Papyrus Lock(false) unlock: the
+        // lock may be the linked load door's, and AddLockChange saves the
+        // change and sends OnLockStateChanged to scripts.
+        lock->SetLocked(
+            false
+        );
+
+        ref->AddLockChange();
+
+        state = {};
+
+// <Windows.h> defines PlaySound as PlaySoundA.
+#pragma push_macro("PlaySound")
+#undef PlaySound
+        RE::PlaySound(
+            kSkyDoomLockBrokenSound
+        );
+#pragma pop_macro("PlaySound")
+
+        RE::SendHUDMessage::ShowHUDMessage(
+            "Lock broken",
+            nullptr,
+            false
+        );
+
+        logger::info(
+            "SkyDoom lock bash: ref={:08X} base={:08X} level={} unlocked",
+            refId,
+            base->GetFormID(),
+            static_cast<int>(level)
         );
     }
 
@@ -12962,6 +13313,9 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
             doomDamage,
             SKYDOOM_PISTOL_HITSCAN_RANGE
         );
+
+        // SKYDOOM_LOCK_BASH
+        BashSkyDoomLockAlongAim();
 
         // SKYDOOM_ACTOR_HITBOX_V4
 

@@ -83,6 +83,9 @@ namespace SkyDoom::Settings
 		// Switch from third to first person when DOOM combat starts.
 		bool firstPersonInCombat = true;
 
+		// Point-blank DOOM shotgun blasts break door and container locks.
+		bool shotgunBreaksLocks = true;
+
 		// [Balance] multipliers: DOOM weapon damage against Skyrim actors,
 		// and Skyrim damage before it reaches DOOM health.
 		float damageDealtMult = 1.0f;  // 0.1 - 10
