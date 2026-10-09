@@ -941,6 +941,11 @@ default:
                 return;
             }
 
+            if (event->value == INT32_MIN)
+            {
+                return;
+            }
+
             SkyDoom_ReportBFGDamageRequest(
                 -event->value,
                 1
@@ -1072,19 +1077,13 @@ if (
 
         {
 
-            skydoom_pending_external_damage +=
-
-                event->value;
-
-
-
-
+            /* Clamp before adding so a huge value cannot overflow. */
 
             if (
 
-                skydoom_pending_external_damage >
+                event->value >=
 
-                100000
+                100000 - skydoom_pending_external_damage
 
             )
 
@@ -1093,6 +1092,16 @@ if (
                 skydoom_pending_external_damage =
 
                     100000;
+
+            }
+
+            else
+
+            {
+
+                skydoom_pending_external_damage +=
+
+                    event->value;
 
             }
 
