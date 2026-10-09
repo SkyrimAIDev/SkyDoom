@@ -238,6 +238,7 @@ namespace SkyDoom::Settings
 
 			ReadBool(a_ini, "Pickups", "bEnemyDrops", a_values.enemyDrops);
 			ReadInt(a_ini, "Pickups", "iEnemyDropChance", 0, 100, a_values.enemyDropChance);
+			ReadBool(a_ini, "Pickups", "bWorldStashes", a_values.worldStashes);
 		}
 	}
 

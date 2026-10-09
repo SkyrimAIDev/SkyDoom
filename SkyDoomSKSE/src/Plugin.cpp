@@ -31,6 +31,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <unordered_set>
 #include <vector>
 
 #ifdef min
@@ -190,6 +191,9 @@ namespace
 
 	std::atomic_int g_skyDoomEnemyDropChance =
 		100;
+
+	std::atomic_bool g_skyDoomWorldStashes =
+		true;
 
 	// DOOM weapon damage as applied to a Skyrim actor.
 	float SkyDoomScaledDamage(
@@ -959,10 +963,14 @@ namespace
 		g_skyDoomEnemyDropChance =
 			values.enemyDropChance;
 
+		g_skyDoomWorldStashes =
+			values.worldStashes;
+
 		logger::info(
-			"SkyDoom settings: enemyDrops={} enemyDropChance={}%",
+			"SkyDoom settings: enemyDrops={} enemyDropChance={}% worldStashes={}",
 			values.enemyDrops,
-			values.enemyDropChance);
+			values.enemyDropChance,
+			values.worldStashes);
 
 		std::scoped_lock lock(
 			g_settingsMutex);
@@ -40720,6 +40728,196 @@ SKSE::log::info(
 
 
 
+	// SKYDOOM_DUNGEON_STASHES
+	//
+	// DOOM hides items around its levels. The first time per session the
+	// player enters a dungeon interior (a location Skyrim marks
+	// LocTypeDungeon or LocTypeClearable), a few DOOM items are placed on
+	// top of chests, barrels, urns and sacks, spread around the area and
+	// chosen by what the player is lowest on (like enemy drops). On top of
+	// a container they sit on a real surface inside the room, and the
+	// pickup visibility ray still sees them. Main thread.
+	constexpr std::size_t
+		kSkyDoomMaxStashesPerCell =
+			5;
+
+	constexpr float
+		kSkyDoomStashMinSpacing =
+			400.0f;  // Skyrim units between stashes
+
+	bool SkyDoomIsDungeonCell(
+		const RE::TESObjectCELL* a_cell)
+	{
+		if (
+			!a_cell ||
+			!a_cell->IsInteriorCell()) {
+			return false;
+		}
+
+		for (
+			auto* location = a_cell->GetLocation();
+			location;
+			location = location->parentLoc) {
+			if (
+				location->HasKeywordString("LocTypeDungeon") ||
+				location->HasKeywordString("LocTypeClearable")) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	void ProcessSkyDoomDungeonStashes(
+		RE::PlayerCharacter* a_player)
+	{
+		static RE::FormID currentCellId =
+			0;
+
+		// Entered but not yet handled (waits for the cell to attach).
+		static RE::FormID pendingCellId =
+			0;
+
+		static std::unordered_set<RE::FormID>
+			stashedCells;
+
+		auto* cell =
+			a_player ?
+				a_player->GetParentCell() :
+				nullptr;
+
+		if (!cell) {
+			return;
+		}
+
+		const auto cellId =
+			cell->GetFormID();
+
+		if (cellId != currentCellId) {
+			currentCellId =
+				cellId;
+
+			pendingCellId =
+				cellId;
+		}
+
+		if (
+			pendingCellId != cellId ||
+			!cell->IsAttached()) {
+			return;
+		}
+
+		pendingCellId =
+			0;
+
+		if (
+			!SkyDoomIsDungeonCell(cell) ||
+			!stashedCells.insert(cellId).second) {
+			return;
+		}
+
+		std::vector<RE::TESObjectREFR*> containers;
+
+		cell->ForEachReference(
+			[&](RE::TESObjectREFR* a_ref) {
+				const auto* base =
+					a_ref ?
+						a_ref->GetBaseObject() :
+						nullptr;
+
+				if (
+					base &&
+					base->Is(RE::FormType::Container) &&
+					!a_ref->IsDisabled() &&
+					!a_ref->IsDeleted()) {
+					containers.push_back(
+						a_ref);
+				}
+
+				return RE::BSContainer::ForEachResult::kContinue;
+			});
+
+		// Shuffle with SkyDoom's pickup RNG, then keep stashes spread out.
+		for (
+			std::size_t i = containers.size();
+			i > 1;
+			--i) {
+			const auto j =
+				SkyDoomNextPickupRandomV15_3(
+					cellId ^ static_cast<std::uint32_t>(i)) %
+				i;
+
+			std::swap(
+				containers[i - 1],
+				containers[j]);
+		}
+
+		const float scale =
+			GetSkyDoomDoomToSkyrimScale(
+				a_player);
+
+		std::vector<RE::NiPoint3> placed;
+
+		for (auto* container : containers) {
+			if (placed.size() >= kSkyDoomMaxStashesPerCell) {
+				break;
+			}
+
+			const auto base =
+				container->GetPosition();
+
+			const bool tooClose =
+				std::ranges::any_of(
+					placed,
+					[&](const RE::NiPoint3& a_other) {
+						return a_other.GetDistance(base) < kSkyDoomStashMinSpacing;
+					});
+
+			if (tooClose) {
+				continue;
+			}
+
+			const auto pickupType =
+				ChooseSkyDoomResourcePickupV15_3(
+					container->GetFormID());
+
+			if (pickupType == SKYDOOM_PICKUP_NONE) {
+				continue;
+			}
+
+			// On top of the container: its bounds are local and unrotated,
+			// with the origin at the base for chests, barrels and urns.
+			auto position =
+				base;
+
+			const float top =
+				container->GetBoundMax().z *
+				container->GetScale();
+
+			if (
+				std::isfinite(top) &&
+				top > 0.0f &&
+				top < 200.0f) {
+				position.z +=
+					top + 1.0f;
+			}
+
+			SpawnSkyDoomResourcePickupV15_3(
+				pickupType,
+				position,
+				scale);
+
+			placed.push_back(
+				base);
+		}
+
+		logger::info(
+			"SkyDoom dungeon stash: cell={:08X} containers={} placed={}",
+			cellId,
+			containers.size(),
+			placed.size());
+	}
+
 	// SKYDOOM_COMBAT_STAMINA
 	//
 	// DOOM has no stamina and the DOOM HUD cannot show Skyrim's, so keep the
@@ -40895,6 +41093,19 @@ SKSE::log::info(
             doomFresh,
             g_skyDoomEnabled
         );
+
+        // SKYDOOM_DUNGEON_STASHES
+        if (
+            doomFresh &&
+            g_skyDoomEnabled &&
+            g_skyDoomWorldStashes &&
+            g_state->skyrim.in_game
+        )
+        {
+            ProcessSkyDoomDungeonStashes(
+                player
+            );
+        }
 
         // SKYDOOM_APPLY_PRESENTATION_V4
         // SKYDOOM_COMBAT_MODE: hide Skyrim's first-person model only in

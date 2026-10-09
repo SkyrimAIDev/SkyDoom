@@ -88,6 +88,9 @@ namespace SkyDoom::Settings
 		// [Pickups] DOOM items dropped by killed enemies.
 		bool enemyDrops = true;
 		std::int32_t enemyDropChance = 100;  // percent
+
+		// DOOM items placed in dungeons the first time they are entered.
+		bool worldStashes = true;
 	};
 
 	[[nodiscard]] Values Defaults();

@@ -70,7 +70,10 @@
       "content": [
         { "text": "Enemy drops", "type": "header" },
         { "id": "bEnemyDrops:Pickups", "text": "Enemies drop DOOM items", "type": "toggle", "help": "Killed enemies drop a DOOM item (health, armour or ammo), chosen by what you are lowest on. Only while SkyDoom is enabled.", "valueOptions": { "sourceType": "ModSettingBool" } },
-        { "id": "iEnemyDropChance:Pickups", "text": "Drop chance", "type": "slider", "help": "Chance that a killed enemy drops a DOOM item. Default: 100%.", "valueOptions": { "min": 0, "max": 100, "step": 5, "formatString": "{0}%", "sourceType": "ModSettingInt" } }
+        { "id": "iEnemyDropChance:Pickups", "text": "Drop chance", "type": "slider", "help": "Chance that a killed enemy drops a DOOM item. Default: 100%.", "valueOptions": { "min": 0, "max": 100, "step": 5, "formatString": "{0}%", "sourceType": "ModSettingInt" } },
+
+        { "text": "Dungeon stashes", "type": "header" },
+        { "id": "bWorldStashes:Pickups", "text": "Stashes in dungeons", "type": "toggle", "help": "The first time you enter a dungeon area in a session, a few DOOM items appear on top of its chests, barrels and urns, chosen by what you are lowest on. Only while SkyDoom is enabled.", "valueOptions": { "sourceType": "ModSettingBool" } }
       ]
     }
   ]
