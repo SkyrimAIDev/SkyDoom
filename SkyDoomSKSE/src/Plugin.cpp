@@ -7257,23 +7257,25 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 	{
 		std::uint16_t type;
 		std::uint16_t code;
-		bool hold;  // send release too (fire), not just press
+		bool hold;   // send release too (fire), not just press
+		bool local;  // handled by the plugin (HUD toggle), not sent to DOOM
 	};
 
 	// Indexed by SkyDoom::Settings::Action.
 	constexpr std::array<SkyDoomBindingAction, SkyDoom::Settings::kActionCount>
 		kSkyDoomBindingActions{ {
-			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_FIRE, true },
-			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_MELEE, false },
-			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_PISTOL, false },
-			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_SHOTGUN, false },
-			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_CHAINGUN, false },
-			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_ROCKET, false },
-			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_PLASMA, false },
-			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_BFG, false },
-			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_NEXT, false },
-			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_PREV, false },
-			{ SKYDOOM_INPUT_EVENT_MUSIC_TOGGLE, 0, false },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_FIRE, true, false },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_MELEE, false, false },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_PISTOL, false, false },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_SHOTGUN, false, false },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_CHAINGUN, false, false },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_ROCKET, false, false },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_PLASMA, false, false },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_BFG, false, false },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_NEXT, false, false },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_PREV, false, false },
+			{ SKYDOOM_INPUT_EVENT_MUSIC_TOGGLE, 0, false, false },
+			{ 0, 0, false, true },  // ToggleHud
 		} };
 
 	// For each key code, the hold action (fire) it is holding down, or -1.
@@ -7323,17 +7325,24 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 			-1;
 	}
 
-	// True only during normal gameplay with the DOOM guest connected: never
-	// while a menu (including the MCM key-capture dialog) has input focus.
-	bool SkyDoomBindingsActive()
-	{
-		if (
-			!g_state ||
-			!g_state->skyrim.in_game ||
-			!DoomHeartbeatIsFresh()) {
-			return false;
-		}
+	// SKYDOOM_HUD_VISIBILITY
+	//
+	// The overlay and world sprites are drawn in Present, on top of Skyrim's
+	// own UI, so they covered the dialogue menu (Dialogue does not pause the
+	// game). They are now only drawn while normal gameplay has input focus,
+	// and the "Toggle DOOM HUD" binding can hide the HUD/weapon overlay.
+	// Focus is read on the main thread and handed to Present atomically.
+	std::atomic_bool g_skyDoomGameplayFocus =
+		false;
 
+	std::atomic_bool g_skyDoomHudHidden =
+		false;
+
+	// True during normal gameplay: never while the game is paused, a text
+	// field is active, or a menu (dialogue, the MCM key-capture dialog,
+	// inventory, ...) has input focus. Main thread only.
+	bool SkyDoomGameplayHasFocus()
+	{
 		auto* ui =
 			RE::UI::GetSingleton();
 
@@ -7358,6 +7367,34 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 			!runtime.contextPriorityStack.empty() &&
 			runtime.contextPriorityStack.back() ==
 				RE::UserEvents::INPUT_CONTEXT_ID::kGameplay;
+	}
+
+	// Main thread: publish gameplay focus for Present.
+	void UpdateSkyDoomGameplayFocus()
+	{
+		g_skyDoomGameplayFocus =
+			SkyDoomGameplayHasFocus();
+	}
+
+	// Any thread: should the DOOM HUD/weapon overlay be drawn?
+	bool SkyDoomHudVisible()
+	{
+		return
+			g_skyDoomGameplayFocus &&
+			!g_skyDoomHudHidden;
+	}
+
+	// True only during normal gameplay with the DOOM guest connected.
+	bool SkyDoomBindingsActive()
+	{
+		if (
+			!g_state ||
+			!g_state->skyrim.in_game ||
+			!DoomHeartbeatIsFresh()) {
+			return false;
+		}
+
+		return SkyDoomGameplayHasFocus();
 	}
 
 	// Sends bound actions to DOOM and returns the event list Skyrim should
@@ -7428,10 +7465,23 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 							const auto& bound =
 								kSkyDoomBindingActions[*action];
 
-							PushInputEvent(
-								bound.type,
-								bound.code,
-								1);
+							if (bound.local) {
+								// SKYDOOM_HUD_VISIBILITY: Toggle DOOM HUD.
+								const bool hidden =
+									!g_skyDoomHudHidden;
+
+								g_skyDoomHudHidden =
+									hidden;
+
+								logger::info(
+									"SkyDoom HUD {}",
+									hidden ? "hidden" : "shown");
+							} else {
+								PushInputEvent(
+									bound.type,
+									bound.code,
+									1);
+							}
 
 							if (bound.hold) {
 								g_skyDoomHeldAction[code] =
@@ -7515,6 +7565,9 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 			RE::BSTEventSource<RE::InputEvent*>* a_dispatcher,
 			RE::InputEvent* const* a_events)
 		{
+			// Runs every frame on the main thread.
+			UpdateSkyDoomGameplayFocus();
+
 			if (
 				!a_events ||
 				!*a_events) {
@@ -9543,7 +9596,8 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 			!g_state ||
 			!g_state->skyrim.in_game ||
 			g_state->skyrim.paused ||
-			!DoomHeartbeatIsFresh()) {
+			!DoomHeartbeatIsFresh() ||
+			!SkyDoomHudVisible()) {
 			return;
 		}
 
@@ -9735,7 +9789,10 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
             g_state->
                 skyrim.
                 in_game &&
-            DoomHeartbeatIsFresh();
+            DoomHeartbeatIsFresh() &&
+            // SKYDOOM_HUD_VISIBILITY: give the crosshair back to Skyrim
+            // whenever the DOOM HUD is hidden.
+            SkyDoomHudVisible();
 
         // SKYDOOM_CROSSHAIR_UI_TASK: never call Scaleform from Present.
         QueueSkyDoomSkyrimCrosshairHidden(
@@ -9745,23 +9802,29 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 		RenderSkyDoomOverlay(
 			swapChain);
 
-        // SKYDOOM_VISIBLE_ROCKET_PRESENT_V11_1
+        // SKYDOOM_HUD_VISIBILITY: world sprites are drawn over Skyrim's UI,
+        // so skip them while a menu has focus. (Simulation runs in
+        // UpdateSharedState, so rockets and pickups keep working.)
+        if (g_skyDoomGameplayFocus)
+        {
+            // SKYDOOM_VISIBLE_ROCKET_PRESENT_V11_1
 
-        DrawSkyDoomRocketSpritesV11_1();
-        // SKYDOOM_ROCKET_EXPLOSION_PRESENT_V11_2
-        DrawSkyDoomRocketExplosionsV11_2();
-        // SKYDOOM_VISIBLE_PLASMA_PRESENT_V12_2A
-        DrawSkyDoomPlasmaSpritesV12_2();
-        // SKYDOOM_PLASMA_IMPACT_PRESENT_V13
-        DrawSkyDoomPlasmaImpactsV13();
-        // SKYDOOM_VISIBLE_BFG_PRESENT_V14_2A
-        DrawSkyDoomBFGSpritesV14_2A();
-        // SKYDOOM_BFG_IMPACT_PRESENT_V14_2B
-        DrawSkyDoomBFGImpactsV14_2B();
-        // SKYDOOM_BFG_EXTRA_PRESENT_V14_3
-        DrawSkyDoomBFGExtrasV14_3();
-        // SKYDOOM_PICKUP_PRESENT_V15
-        DrawSkyDoomPhysicalPickupsV15();
+            DrawSkyDoomRocketSpritesV11_1();
+            // SKYDOOM_ROCKET_EXPLOSION_PRESENT_V11_2
+            DrawSkyDoomRocketExplosionsV11_2();
+            // SKYDOOM_VISIBLE_PLASMA_PRESENT_V12_2A
+            DrawSkyDoomPlasmaSpritesV12_2();
+            // SKYDOOM_PLASMA_IMPACT_PRESENT_V13
+            DrawSkyDoomPlasmaImpactsV13();
+            // SKYDOOM_VISIBLE_BFG_PRESENT_V14_2A
+            DrawSkyDoomBFGSpritesV14_2A();
+            // SKYDOOM_BFG_IMPACT_PRESENT_V14_2B
+            DrawSkyDoomBFGImpactsV14_2B();
+            // SKYDOOM_BFG_EXTRA_PRESENT_V14_3
+            DrawSkyDoomBFGExtrasV14_3();
+            // SKYDOOM_PICKUP_PRESENT_V15
+            DrawSkyDoomPhysicalPickupsV15();
+        }
 
 		return g_originalPresent(
 			swapChain,
@@ -40399,6 +40462,9 @@ SKSE::log::info(
 			paused ?
 				1u :
 				0u;
+
+		// Also covers the case where the input hook is not installed.
+		UpdateSkyDoomGameplayFocus();
 
 		auto* player =
 			RE::PlayerCharacter::

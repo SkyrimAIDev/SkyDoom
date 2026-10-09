@@ -21,6 +21,7 @@
         { "id": "iNextWeaponKey:Controls", "text": "Next weapon", "type": "keymap", "ignoreConflicts": true, "help": "Cycle forward through the weapons you own.", "valueOptions": { "sourceType": "ModSettingInt" } },
         { "id": "iPrevWeaponKey:Controls", "text": "Previous weapon", "type": "keymap", "ignoreConflicts": true, "help": "Cycle backward through the weapons you own.", "valueOptions": { "sourceType": "ModSettingInt" } },
         { "id": "iMusicToggleKey:Controls", "text": "Toggle DOOM music", "type": "keymap", "ignoreConflicts": true, "help": "Turn the DOOM music on or off.", "valueOptions": { "sourceType": "ModSettingInt" } },
+        { "id": "iToggleHudKey:Controls", "text": "Toggle DOOM HUD", "type": "keymap", "ignoreConflicts": true, "help": "Show or hide the DOOM HUD and weapon. DOOM controls stay active. SkyDoom also hides them automatically while a menu or dialogue is open. Default: F11.", "valueOptions": { "sourceType": "ModSettingInt" } },
 
         { "text": "Controller", "type": "header", "position": 1 },
         { "id": "iFireButton:Controls", "text": "Fire", "type": "keymap", "ignoreConflicts": true, "help": "Fire the current DOOM weapon. Hold to keep firing. Default: Right Trigger.", "valueOptions": { "sourceType": "ModSettingInt" } },
@@ -33,7 +34,8 @@
         { "id": "iBfgButton:Controls", "text": "BFG 9000", "type": "keymap", "ignoreConflicts": true, "help": "Switch to the BFG 9000.", "valueOptions": { "sourceType": "ModSettingInt" } },
         { "id": "iNextWeaponButton:Controls", "text": "Next weapon", "type": "keymap", "ignoreConflicts": true, "help": "Cycle forward through the weapons you own. Default: D-pad Right.", "valueOptions": { "sourceType": "ModSettingInt" } },
         { "id": "iPrevWeaponButton:Controls", "text": "Previous weapon", "type": "keymap", "ignoreConflicts": true, "help": "Cycle backward through the weapons you own. Default: D-pad Left.", "valueOptions": { "sourceType": "ModSettingInt" } },
-        { "id": "iMusicToggleButton:Controls", "text": "Toggle DOOM music", "type": "keymap", "ignoreConflicts": true, "help": "Turn the DOOM music on or off.", "valueOptions": { "sourceType": "ModSettingInt" } }
+        { "id": "iMusicToggleButton:Controls", "text": "Toggle DOOM music", "type": "keymap", "ignoreConflicts": true, "help": "Turn the DOOM music on or off.", "valueOptions": { "sourceType": "ModSettingInt" } },
+        { "id": "iToggleHudButton:Controls", "text": "Toggle DOOM HUD", "type": "keymap", "ignoreConflicts": true, "help": "Show or hide the DOOM HUD and weapon. DOOM controls stay active. SkyDoom also hides them automatically while a menu or dialogue is open.", "valueOptions": { "sourceType": "ModSettingInt" } }
       ]
     },
     {

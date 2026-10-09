@@ -31,6 +31,7 @@ namespace SkyDoom::Settings
 		NextWeapon,
 		PrevWeapon,
 		MusicToggle,
+		ToggleHud,
 
 		kTotal
 	};
