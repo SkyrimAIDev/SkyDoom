@@ -8,9 +8,25 @@ first. Each build is made from its `release/<version>` branch, and its
 Each section starts with a `Status:` line (how far the build has been
 tested), followed by the changes since the previous build.
 
-## v0.1.9-beta - 2026-10-09
+## v0.1.10-beta - 2026-10-09
 
 Status: In testing.
+
+- Fixed: the shotgun rarely broke locks. Skyrim's crosshair is hidden in
+  DOOM combat, so it was hard to aim exactly at a lock. A blast now hits the
+  locked door or chest you are facing, like DOOM's autoaim: it only has to
+  be roughly in front of you (within about 25 degrees), at any height,
+  within about 4 m, with nothing in the way.
+- Changed: lock messages (LOCK DAMAGED (2/4), LOCK BROKEN!, THIS LOCK NEEDS
+  A KEY) now appear on the DOOM message line, where pickups are announced,
+  instead of as small Skyrim notifications. A lock that needs a key gets
+  DOOM's "oof".
+
+## v0.1.9-beta - 2026-10-09
+
+Status: Tested; locks rarely broke. Only 3 of many blasts counted on an
+Expert lock, and its progress messages went unnoticed. Fixed in
+v0.1.10-beta.
 
 - New: the DOOM shotgun breaks locks. A point-blank blast damages the lock
   of a door or chest, and enough blasts break it: Novice 1, Apprentice 2,
