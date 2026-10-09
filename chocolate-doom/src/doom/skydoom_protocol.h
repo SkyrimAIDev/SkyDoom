@@ -39,6 +39,19 @@
 /* SKYDOOM_MUSIC_TOGGLE_V15_8 */
 #define SKYDOOM_INPUT_EVENT_MUSIC_TOGGLE  7u
 
+/*
+    SKYDOOM_LOCK_BASH
+
+    Skyrim -> Chocolate Doom: a DOOM shotgun blast hit a Skyrim lock.
+    Shown on the DOOM message line. code is a SKYDOOM_LOCK_STATUS_*
+    value; for DAMAGED, value is (blasts << 8) | blasts needed.
+*/
+#define SKYDOOM_INPUT_EVENT_LOCK_STATUS   8u
+
+#define SKYDOOM_LOCK_STATUS_DAMAGED    1u
+#define SKYDOOM_LOCK_STATUS_BROKEN     2u
+#define SKYDOOM_LOCK_STATUS_NEEDS_KEY  3u
+
 #define SKYDOOM_PICKUP_NONE              0u
 #define SKYDOOM_PICKUP_MEDIKIT           1u
 #define SKYDOOM_PICKUP_ARMOR             2u

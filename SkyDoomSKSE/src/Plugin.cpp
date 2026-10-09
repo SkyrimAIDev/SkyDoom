@@ -11752,30 +11752,26 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         kSkyDoomAimRayStartOffset =
             16.0f;
 
-    // First non-actor reference along the camera aim ray within a_range,
-    // using the player's collision filter, so it finds what the player
-    // would bump into (doors, chests, webs). Main thread.
-    RE::TESObjectREFR* PickSkyDoomAimObject(
-        float a_range
+    // Casts a ray between two world points with the player's collision
+    // filter, so it hits what the player would bump into (walls, doors,
+    // chests, webs). Returns true if it hit anything; a_hitRef is the
+    // reference hit, if the collidable belongs to one. Main thread.
+    bool PickSkyDoomRay(
+        const RE::NiPoint3& a_from,
+        const RE::NiPoint3& a_to,
+        RE::TESObjectREFR*& a_hitRef
     )
     {
+        a_hitRef =
+            nullptr;
+
         auto* player =
             RE::PlayerCharacter::GetSingleton();
 
-        auto* camera =
-            RE::PlayerCamera::GetSingleton();
-
-        if (
-            !player ||
-            !camera ||
-            !camera->cameraRoot
-        )
-        {
-            return nullptr;
-        }
-
         auto* controller =
-            player->GetCharController();
+            player ?
+                player->GetCharController() :
+                nullptr;
 
         auto* world =
             controller ?
@@ -11784,22 +11780,7 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 
         if (!world)
         {
-            return nullptr;
-        }
-
-        const auto& cameraWorld =
-            camera->cameraRoot->world;
-
-        RE::NiPoint3 forward =
-            cameraWorld.rotate *
-            RE::NiPoint3{ 0.0f, 1.0f, 0.0f };
-
-        if (
-            forward.Unitize() <= 0.0f ||
-            a_range <= kSkyDoomAimRayStartOffset
-        )
-        {
-            return nullptr;
+            return false;
         }
 
         RE::hkVector4 playerHavok{};
@@ -11834,34 +11815,79 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 
         pick.rayInput.from =
             toHavok(
-                cameraWorld.translate +
-                forward * kSkyDoomAimRayStartOffset
+                a_from
             );
 
         pick.rayInput.to =
             toHavok(
-                cameraWorld.translate +
-                forward * a_range
+                a_to
             );
 
         controller->GetCollisionFilterInfo(
             pick.rayInput.filterInfo
         );
 
+        if (!world->PickObject(pick))
+        {
+            return false;
+        }
+
+        if (pick.rayOutput.rootCollidable)
+        {
+            a_hitRef =
+                RE::TESHavokUtilities::FindCollidableRef(
+                    *pick.rayOutput.rootCollidable
+                );
+        }
+
+        return true;
+    }
+
+    // First non-actor reference along the camera aim ray within a_range.
+    // Main thread.
+    RE::TESObjectREFR* PickSkyDoomAimObject(
+        float a_range
+    )
+    {
+        auto* player =
+            RE::PlayerCharacter::GetSingleton();
+
+        auto* camera =
+            RE::PlayerCamera::GetSingleton();
+
         if (
-            !world->PickObject(pick) ||
-            !pick.rayOutput.rootCollidable
+            !player ||
+            !camera ||
+            !camera->cameraRoot ||
+            a_range <= kSkyDoomAimRayStartOffset
         )
         {
             return nullptr;
         }
 
-        auto* ref =
-            RE::TESHavokUtilities::FindCollidableRef(
-                *pick.rayOutput.rootCollidable
-            );
+        const auto& cameraWorld =
+            camera->cameraRoot->world;
+
+        RE::NiPoint3 forward =
+            cameraWorld.rotate *
+            RE::NiPoint3{ 0.0f, 1.0f, 0.0f };
+
+        if (forward.Unitize() <= 0.0f)
+        {
+            return nullptr;
+        }
+
+        RE::TESObjectREFR* ref =
+            nullptr;
 
         if (
+            !PickSkyDoomRay(
+                cameraWorld.translate +
+                forward * kSkyDoomAimRayStartOffset,
+                cameraWorld.translate +
+                forward * a_range,
+                ref
+            ) ||
             !ref ||
             ref == player ||
             ref->IsDisabled() ||
@@ -11928,17 +11954,38 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         SKYDOOM_LOCK_BASH
 
         A point-blank DOOM shotgun blast damages the lock of the door or
-        container in the aim ray, and enough blasts break it: Novice 1,
-        Apprentice 2, Adept 3, Expert 4, Master 5. Locks that need a key
-        never break, so quest doors stay shut. Blasting an owned lock is
-        a crime if someone sees it, checked the way Skyrim checks lock
-        picking. All seven pellets of a shot arrive
-        within a tick or two, so pellets closer together than
-        kSkyDoomLockBlastGapMs count as one blast. Main thread.
+        container in front of the player, and enough blasts break it:
+        Novice 1, Apprentice 2, Adept 3, Expert 4, Master 5. Locks that
+        need a key never break, so quest doors stay shut. Blasting an
+        owned lock is a crime if someone sees it, checked the way Skyrim
+        checks lock picking.
+
+        Targeting works like DOOM's autoaim: Skyrim's crosshair is hidden
+        in DOOM combat, so instead of the exact aim ray the blast hits the
+        locked door or container nearest the centre of view, horizontally
+        within kSkyDoomLockAimCos of where the player faces, at any height,
+        within reach and with nothing solid in between.
+
+        Progress goes to the DOOM message line (SKYDOOM_INPUT_EVENT_LOCK_
+        STATUS), where pickups are announced. The first pellet of a shot
+        decides; the other pellets, arriving within a tick or two, are the
+        same blast. Main thread.
     */
+    // Camera to the centre of the lock's door or container, about 4.3 m.
     constexpr float
         kSkyDoomLockBashRange =
-            256.0f;  // about 3.6 m from the camera
+            300.0f;
+
+    // Search radius slack: references are found by their origin, which
+    // can be off-centre (door hinges).
+    constexpr float
+        kSkyDoomLockSearchSlack =
+            150.0f;
+
+    // cos(25 degrees): how far off-centre, horizontally, a lock can be.
+    constexpr float
+        kSkyDoomLockAimCos =
+            0.906f;
 
     // DOOM's shotgun refires about once a second.
     constexpr std::uint64_t
@@ -11948,9 +11995,6 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
     struct SkyDoomLockBashState
     {
         RE::FormID ref =
-            0;
-
-        std::uint64_t lastBlastMs =
             0;
 
         std::int32_t blasts =
@@ -12091,41 +12135,185 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         return true;
     }
 
-    void BashSkyDoomLockAlongAim()
+    // The locked door or container the next blast hits, or nullptr.
+    RE::TESObjectREFR* FindSkyDoomLockTarget()
+    {
+        auto* player =
+            RE::PlayerCharacter::GetSingleton();
+
+        auto* camera =
+            RE::PlayerCamera::GetSingleton();
+
+        auto* tes =
+            RE::TES::GetSingleton();
+
+        if (
+            !player ||
+            !camera ||
+            !camera->cameraRoot ||
+            !tes
+        )
+        {
+            return nullptr;
+        }
+
+        const auto& cameraWorld =
+            camera->cameraRoot->world;
+
+        const RE::NiPoint3 eye =
+            cameraWorld.translate;
+
+        // Where the player faces, ignoring pitch.
+        RE::NiPoint3 facing =
+            cameraWorld.rotate *
+            RE::NiPoint3{ 0.0f, 1.0f, 0.0f };
+
+        facing.z =
+            0.0f;
+
+        if (facing.Unitize() <= 0.0f)
+        {
+            const float yaw =
+                player->GetAngleZ();
+
+            facing =
+                RE::NiPoint3{
+                    std::sin(yaw),
+                    std::cos(yaw),
+                    0.0f
+                };
+        }
+
+        RE::TESObjectREFR* best =
+            nullptr;
+
+        float bestCos =
+            kSkyDoomLockAimCos;
+
+        tes->ForEachReferenceInRange(
+            player,
+            kSkyDoomLockBashRange + kSkyDoomLockSearchSlack,
+            [&](RE::TESObjectREFR* a_ref)
+            {
+                auto* base =
+                    a_ref ?
+                        a_ref->GetBaseObject() :
+                        nullptr;
+
+                if (
+                    !base ||
+                    (
+                        !base->Is(RE::FormType::Door) &&
+                        !base->Is(RE::FormType::Container)
+                    ) ||
+                    a_ref->IsDisabled() ||
+                    a_ref->IsMarkedForDeletion() ||
+                    a_ref->GetLockLevel() == RE::LOCK_LEVEL::kUnlocked
+                )
+                {
+                    return RE::BSContainer::ForEachResult::kContinue;
+                }
+
+                auto* node =
+                    a_ref->Get3D();
+
+                if (!node)
+                {
+                    return RE::BSContainer::ForEachResult::kContinue;
+                }
+
+                const RE::NiPoint3 center =
+                    node->worldBound.center;
+
+                const RE::NiPoint3 delta =
+                    center - eye;
+
+                if (delta.Length() > kSkyDoomLockBashRange)
+                {
+                    return RE::BSContainer::ForEachResult::kContinue;
+                }
+
+                // Straight above or below counts as centred.
+                RE::NiPoint3 flat{
+                    delta.x,
+                    delta.y,
+                    0.0f
+                };
+
+                const float cosine =
+                    flat.Unitize() > 0.0f ?
+                        flat.Dot(facing) :
+                        1.0f;
+
+                if (cosine <= bestCos)
+                {
+                    return RE::BSContainer::ForEachResult::kContinue;
+                }
+
+                // Nothing solid between the camera and the lock.
+                RE::TESObjectREFR* blocker =
+                    nullptr;
+
+                if (
+                    PickSkyDoomRay(
+                        eye,
+                        center,
+                        blocker
+                    ) &&
+                    blocker != a_ref
+                )
+                {
+                    return RE::BSContainer::ForEachResult::kContinue;
+                }
+
+                best =
+                    a_ref;
+
+                bestCos =
+                    cosine;
+
+                return RE::BSContainer::ForEachResult::kContinue;
+            }
+        );
+
+        return best;
+    }
+
+    void BashSkyDoomLockInFront()
     {
         if (!g_skyDoomShotgunBreaksLocks)
         {
             return;
         }
 
-        auto* ref =
-            PickSkyDoomAimObject(
-                kSkyDoomLockBashRange
-            );
+        // The first pellet of a shot decides for the whole blast.
+        static std::uint64_t lastShotMs =
+            0;
 
-        auto* base =
-            ref ?
-                ref->GetBaseObject() :
-                nullptr;
+        const std::uint64_t now =
+            GetTickCount64();
 
-        if (
-            !base ||
-            (
-                !base->Is(RE::FormType::Door) &&
-                !base->Is(RE::FormType::Container)
-            )
-        )
+        if (now - lastShotMs < kSkyDoomLockBlastGapMs)
         {
             return;
         }
+
+        lastShotMs =
+            now;
+
+        auto* ref =
+            FindSkyDoomLockTarget();
+
+        if (!ref)
+        {
+            return;
+        }
+
+        auto* base =
+            ref->GetBaseObject();
 
         const auto level =
             ref->GetLockLevel();
-
-        if (level == RE::LOCK_LEVEL::kUnlocked)
-        {
-            return;
-        }
 
         auto& state =
             g_skyDoomLockBash;
@@ -12133,25 +12321,11 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         const RE::FormID refId =
             ref->GetFormID();
 
-        const std::uint64_t now =
-            GetTickCount64();
-
-        if (state.ref == refId)
-        {
-            // Another pellet of the blast already counted.
-            if (now - state.lastBlastMs < kSkyDoomLockBlastGapMs)
-            {
-                return;
-            }
-        }
-        else
+        if (state.ref != refId)
         {
             state = {};
             state.ref = refId;
         }
-
-        state.lastBlastMs =
-            now;
 
         const std::int32_t needed =
             SkyDoomLockBlastsNeeded(
@@ -12160,8 +12334,15 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 
         if (needed == 0)
         {
-            RE::SendHUDMessage::ShowHUDMessage(
-                "This lock needs a key"
+            PushInputEvent(
+                SKYDOOM_INPUT_EVENT_LOCK_STATUS,
+                SKYDOOM_LOCK_STATUS_NEEDS_KEY,
+                0
+            );
+
+            logger::info(
+                "SkyDoom lock bash: ref={:08X} needs a key",
+                refId
             );
 
             return;
@@ -12180,17 +12361,10 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 
         if (state.blasts < needed)
         {
-            const std::string text =
-                std::format(
-                    "Lock damaged ({}/{})",
-                    state.blasts,
-                    needed
-                );
-
-            RE::SendHUDMessage::ShowHUDMessage(
-                text.c_str(),
-                nullptr,
-                false
+            PushInputEvent(
+                SKYDOOM_INPUT_EVENT_LOCK_STATUS,
+                SKYDOOM_LOCK_STATUS_DAMAGED,
+                (state.blasts << 8) | needed
             );
 
             logger::info(
@@ -12231,16 +12405,18 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         );
 #pragma pop_macro("PlaySound")
 
-        RE::SendHUDMessage::ShowHUDMessage(
-            "Lock broken",
-            nullptr,
-            false
+        PushInputEvent(
+            SKYDOOM_INPUT_EVENT_LOCK_STATUS,
+            SKYDOOM_LOCK_STATUS_BROKEN,
+            0
         );
 
         logger::info(
             "SkyDoom lock bash: ref={:08X} base={:08X} level={} unlocked",
             refId,
-            base->GetFormID(),
+            base ?
+                base->GetFormID() :
+                0,
             static_cast<int>(level)
         );
     }
@@ -13315,7 +13491,7 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         );
 
         // SKYDOOM_LOCK_BASH
-        BashSkyDoomLockAlongAim();
+        BashSkyDoomLockInFront();
 
         // SKYDOOM_ACTOR_HITBOX_V4
 

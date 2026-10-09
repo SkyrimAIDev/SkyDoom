@@ -20,6 +20,7 @@
 #include "i_video.h"
 #include "st_stuff.h"
 #include "m_argv.h"
+#include "m_misc.h"
 #include "s_sound.h"
 #include "sounds.h"
 #include "w_wad.h"
@@ -462,6 +463,63 @@ static void SkyDoom_ApplyInputEvent(const SkyDoomInputEvent *event)
                 music_enabled ?
                     "DOOM MUSIC ON" :
                     "DOOM MUSIC OFF";
+        }
+
+        return;
+    }
+
+    /*
+        SKYDOOM_LOCK_BASH
+
+        A shotgun blast hit a Skyrim lock. The HUD copies the message
+        when it shows it, so one buffer is enough. A lock that needs a
+        key gets DOOM's locked-door "oof".
+    */
+    if (event->type == SKYDOOM_INPUT_EVENT_LOCK_STATUS)
+    {
+        static char lock_message[40];
+
+        if (
+            consoleplayer < 0 ||
+            consoleplayer >= MAXPLAYERS ||
+            !playeringame[consoleplayer]
+        )
+        {
+            return;
+        }
+
+        switch (event->code)
+        {
+            case SKYDOOM_LOCK_STATUS_DAMAGED:
+
+                M_snprintf(
+                    lock_message,
+                    sizeof(lock_message),
+                    "LOCK DAMAGED (%d/%d)",
+                    (event->value >> 8) & 0xFF,
+                    event->value & 0xFF);
+
+                players[consoleplayer].message = lock_message;
+
+                break;
+
+            case SKYDOOM_LOCK_STATUS_BROKEN:
+
+                players[consoleplayer].message = "LOCK BROKEN!";
+
+                break;
+
+            case SKYDOOM_LOCK_STATUS_NEEDS_KEY:
+
+                players[consoleplayer].message = "THIS LOCK NEEDS A KEY";
+
+                S_StartSound(NULL, sfx_oof);
+
+                break;
+
+            default:
+
+                break;
         }
 
         return;
