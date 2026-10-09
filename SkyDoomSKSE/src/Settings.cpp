@@ -33,7 +33,7 @@ namespace SkyDoom::Settings
 			{ "iNextWeaponKey", "iNextWeaponButton", kUnbound, 269 },        // D-pad Right
 			{ "iPrevWeaponKey", "iPrevWeaponButton", kUnbound, 268 },        // D-pad Left
 			{ "iMusicToggleKey", "iMusicToggleButton", 0x44, kUnbound },     // F10
-			{ "iToggleHudKey", "iToggleHudButton", 0x57, kUnbound },         // F11
+			{ "iToggleDoomKey", "iToggleDoomButton", 0x57, kUnbound },       // F11
 		} };
 
 		// Highest SKSE key code (gamepad right trigger).

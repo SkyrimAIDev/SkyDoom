@@ -1144,7 +1144,6 @@ namespace
 		false;
 
 	// SKYDOOM_PRESENTATION_STATE_V4
-	bool g_skyDoomDisabledFightingControls = false;
 	bool g_skyDoomCulledFirstPerson = false;
 
 	struct OverlayVertex
@@ -7253,29 +7252,38 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 	// While SkyDoom is active the input-dispatch hook can also remove bound
 	// buttons from the queue before PlayerControls/MenuControls see them.
 
+	// When a binding may act (SKYDOOM_COMBAT_MODE).
+	enum class SkyDoomBindingScope
+	{
+		kCombat,   // DOOM combat mode only (weapon drawn, DOOM mode on)
+		kEnabled,  // whenever DOOM mode is on and the guest is running
+		kAlways,   // any time during gameplay (Toggle DOOM mode)
+	};
+
 	struct SkyDoomBindingAction
 	{
 		std::uint16_t type;
 		std::uint16_t code;
 		bool hold;   // send release too (fire), not just press
-		bool local;  // handled by the plugin (HUD toggle), not sent to DOOM
+		bool local;  // handled by the plugin (DOOM mode toggle), not sent to DOOM
+		SkyDoomBindingScope scope;
 	};
 
 	// Indexed by SkyDoom::Settings::Action.
 	constexpr std::array<SkyDoomBindingAction, SkyDoom::Settings::kActionCount>
 		kSkyDoomBindingActions{ {
-			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_FIRE, true, false },
-			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_MELEE, false, false },
-			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_PISTOL, false, false },
-			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_SHOTGUN, false, false },
-			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_CHAINGUN, false, false },
-			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_ROCKET, false, false },
-			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_PLASMA, false, false },
-			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_BFG, false, false },
-			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_NEXT, false, false },
-			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_PREV, false, false },
-			{ SKYDOOM_INPUT_EVENT_MUSIC_TOGGLE, 0, false, false },
-			{ 0, 0, false, true },  // ToggleHud
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_FIRE, true, false, SkyDoomBindingScope::kCombat },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_MELEE, false, false, SkyDoomBindingScope::kCombat },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_PISTOL, false, false, SkyDoomBindingScope::kCombat },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_SHOTGUN, false, false, SkyDoomBindingScope::kCombat },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_CHAINGUN, false, false, SkyDoomBindingScope::kCombat },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_ROCKET, false, false, SkyDoomBindingScope::kCombat },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_PLASMA, false, false, SkyDoomBindingScope::kCombat },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_BFG, false, false, SkyDoomBindingScope::kCombat },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_NEXT, false, false, SkyDoomBindingScope::kCombat },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_PREV, false, false, SkyDoomBindingScope::kCombat },
+			{ SKYDOOM_INPUT_EVENT_MUSIC_TOGGLE, 0, false, false, SkyDoomBindingScope::kEnabled },
+			{ 0, 0, false, true, SkyDoomBindingScope::kAlways },  // ToggleDoom
 		} };
 
 	// For each key code, the hold action (fire) it is holding down, or -1.
@@ -7325,17 +7333,25 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 			-1;
 	}
 
-	// SKYDOOM_HUD_VISIBILITY
+	// SKYDOOM_COMBAT_MODE
 	//
-	// The overlay and world sprites are drawn in Present, on top of Skyrim's
-	// own UI, so they covered the dialogue menu (Dialogue does not pause the
-	// game). They are now only drawn while normal gameplay has input focus,
-	// and the "Toggle DOOM HUD" binding can hide the HUD/weapon overlay.
-	// Focus is read on the main thread and handed to Present atomically.
-	std::atomic_bool g_skyDoomGameplayFocus =
+	// DOOM mode (the "Toggle DOOM mode" binding; on by default) decides what
+	// drawing a weapon does. With DOOM mode on, readying a weapon (or fists /
+	// spells) enters DOOM combat mode: DOOM HUD and weapon, DOOM controls,
+	// DOOM health and music, and Skyrim's attack/block kept from Skyrim.
+	// Sheathing, or turning DOOM mode off, returns to normal Skyrim.
+	//
+	// SKYDOOM_HUD_VISIBILITY: SkyDoom's visuals are painted in Present over
+	// Skyrim's UI, so nothing is drawn while a menu or dialogue has focus.
+	//
+	// State is computed on the main thread and handed to Present atomically.
+	std::atomic_bool g_skyDoomEnabled =
+		true;
+
+	std::atomic_bool g_skyDoomCombat =
 		false;
 
-	std::atomic_bool g_skyDoomHudHidden =
+	std::atomic_bool g_skyDoomGameplayFocus =
 		false;
 
 	// True during normal gameplay: never while the game is paused, a text
@@ -7369,11 +7385,80 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 				RE::UserEvents::INPUT_CONTEXT_ID::kGameplay;
 	}
 
-	// Main thread: publish gameplay focus for Present.
-	void UpdateSkyDoomGameplayFocus()
+	// Combat starts as soon as the player readies a weapon and ends as soon
+	// as they start sheathing. Main thread only.
+	bool SkyDoomPlayerWeaponReady()
+	{
+		auto* player =
+			RE::PlayerCharacter::GetSingleton();
+
+		const auto* actorState =
+			player ?
+				player->AsActorState() :
+				nullptr;
+
+		if (!actorState) {
+			return false;
+		}
+
+		switch (actorState->GetWeaponState()) {
+		case RE::WEAPON_STATE::kWantToDraw:
+		case RE::WEAPON_STATE::kDrawing:
+		case RE::WEAPON_STATE::kDrawn:
+			return true;
+
+		default:
+			return false;
+		}
+	}
+
+	// Main thread: publish gameplay focus and combat mode for Present and
+	// the DOOM guest (which plays its music only in combat mode).
+	void UpdateSkyDoomModeState()
 	{
 		g_skyDoomGameplayFocus =
 			SkyDoomGameplayHasFocus();
+
+		const bool combat =
+			g_skyDoomEnabled &&
+			g_state &&
+			g_state->skyrim.in_game &&
+			DoomHeartbeatIsFresh() &&
+			SkyDoomPlayerWeaponReady();
+
+		if (
+			g_skyDoomCombat.exchange(
+				combat) != combat) {
+			logger::info(
+				"SkyDoom combat mode {}",
+				combat ? "on" : "off");
+
+			// Leaving combat (e.g. sheathing with Fire held): release held
+			// DOOM actions now, so DOOM does not keep firing outside it.
+			if (!combat) {
+				for (auto& held : g_skyDoomHeldAction) {
+					if (held >= 0) {
+						const auto& bound =
+							kSkyDoomBindingActions[held];
+
+						PushInputEvent(
+							bound.type,
+							bound.code,
+							0);
+
+						held =
+							-1;
+					}
+				}
+			}
+		}
+
+		if (g_state) {
+			g_state->skyrim.combat_mode =
+				combat ?
+					1u :
+					0u;
+		}
 	}
 
 	// Any thread: should the DOOM HUD/weapon overlay be drawn?
@@ -7381,20 +7466,32 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 	{
 		return
 			g_skyDoomGameplayFocus &&
-			!g_skyDoomHudHidden;
+			g_skyDoomCombat;
 	}
 
-	// True only during normal gameplay with the DOOM guest connected.
-	bool SkyDoomBindingsActive()
+	// When a binding may act (main thread; a_focus = SkyDoomGameplayHasFocus).
+	bool SkyDoomBindingScopeActive(
+		SkyDoomBindingScope a_scope,
+		bool a_focus)
 	{
-		if (
-			!g_state ||
-			!g_state->skyrim.in_game ||
-			!DoomHeartbeatIsFresh()) {
+		if (!a_focus) {
 			return false;
 		}
 
-		return SkyDoomGameplayHasFocus();
+		switch (a_scope) {
+		case SkyDoomBindingScope::kCombat:
+			return g_skyDoomCombat;
+
+		case SkyDoomBindingScope::kEnabled:
+			return
+				g_skyDoomEnabled &&
+				g_state &&
+				g_state->skyrim.in_game &&
+				DoomHeartbeatIsFresh();
+
+		default:
+			return true;
+		}
 	}
 
 	// Sends bound actions to DOOM and returns the event list Skyrim should
@@ -7417,8 +7514,17 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 				g_settings.blockSkyrimInput;
 		}
 
-		const bool active =
-			SkyDoomBindingsActive();
+		const bool focus =
+			SkyDoomGameplayHasFocus();
+
+		// SKYDOOM_COMBAT_MODE: Skyrim's attack/block are kept from Skyrim
+		// while in DOOM combat (the DOOM weapon fires instead).
+		const bool combatFocus =
+			focus &&
+			g_skyDoomCombat;
+
+		auto* userEvents =
+			RE::UserEvents::GetSingleton();
 
 		const bool block =
 			a_allowBlocking &&
@@ -7461,21 +7567,25 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 
 						if (
 							action &&
-							active) {
+							SkyDoomBindingScopeActive(
+								kSkyDoomBindingActions[*action].scope,
+								focus)) {
 							const auto& bound =
 								kSkyDoomBindingActions[*action];
 
 							if (bound.local) {
-								// SKYDOOM_HUD_VISIBILITY: Toggle DOOM HUD.
-								const bool hidden =
-									!g_skyDoomHudHidden;
+								// SKYDOOM_COMBAT_MODE: Toggle DOOM mode.
+								const bool enabled =
+									!g_skyDoomEnabled;
 
-								g_skyDoomHudHidden =
-									hidden;
+								g_skyDoomEnabled =
+									enabled;
 
 								logger::info(
-									"SkyDoom HUD {}",
-									hidden ? "hidden" : "shown");
+									"SkyDoom DOOM mode {}",
+									enabled ? "on" : "off");
+
+								UpdateSkyDoomModeState();
 							} else {
 								PushInputEvent(
 									bound.type,
@@ -7502,6 +7612,23 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 								g_skyDoomSwallowedKeys[code] =
 									true;
 							}
+						}
+
+						// SKYDOOM_COMBAT_MODE: no Skyrim attack/block (swinging an
+						// unseen Skyrim weapon) while in DOOM combat. Ready Weapon
+						// still goes through, so sheathing leaves combat mode.
+						if (
+							!swallow &&
+							a_allowBlocking &&
+							combatFocus &&
+							userEvents &&
+							(button->QUserEvent() == userEvents->rightAttack ||
+								button->QUserEvent() == userEvents->leftAttack)) {
+							swallow =
+								true;
+
+							g_skyDoomSwallowedKeys[code] =
+								true;
 						}
 					} else {
 						// Always release a held action (fire), even if
@@ -7566,7 +7693,7 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 			RE::InputEvent* const* a_events)
 		{
 			// Runs every frame on the main thread.
-			UpdateSkyDoomGameplayFocus();
+			UpdateSkyDoomModeState();
 
 			if (
 				!a_events ||
@@ -7602,8 +7729,9 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 			*reinterpret_cast<const std::uint8_t*>(
 				site.address()) != 0xE8) {
 			logger::warn(
-				"SkyDoom input hook site not recognised; "
-				"bindings will work but cannot be kept from Skyrim");
+				"SkyDoom input hook site not recognised; bindings will work, "
+				"but bound buttons and Skyrim attack/block cannot be kept "
+				"from Skyrim in DOOM combat mode");
 
 			return false;
 		}
@@ -9822,8 +9950,11 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
             DrawSkyDoomBFGImpactsV14_2B();
             // SKYDOOM_BFG_EXTRA_PRESENT_V14_3
             DrawSkyDoomBFGExtrasV14_3();
-            // SKYDOOM_PICKUP_PRESENT_V15
-            DrawSkyDoomPhysicalPickupsV15();
+            // SKYDOOM_PICKUP_PRESENT_V15 (pickups exist only in DOOM mode)
+            if (g_skyDoomEnabled)
+            {
+                DrawSkyDoomPhysicalPickupsV15();
+            }
         }
 
 		return g_originalPresent(
@@ -10022,62 +10153,15 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
     )
     {
         /*
-            SkyDoom owns first-person combat while active.
+            SKYDOOM_COMBAT_MODE
 
-            Disable Skyrim's fighting controls temporarily so
-            it does not punch, swing weapons or block.
-
-            The third ToggleControls argument is FALSE because
-            this must NOT alter Skyrim's stored control state.
+            SkyDoom used to switch off ALL of Skyrim's fighting controls
+            (ToggleControls kFighting) while the guest was connected,
+            which also blocked Ready Weapon. DOOM combat mode is now
+            entered by drawing a weapon and left by sheathing it, so only
+            attack/block are kept from Skyrim, by the input-dispatch hook
+            (HandleSkyDoomBindings), while Ready Weapon still works.
         */
-
-        auto* controlMap =
-            RE::ControlMap::
-                GetSingleton();
-
-
-        if (controlMap)
-        {
-            using UEFlag =
-                RE::ControlMap::
-                    UEFlag;
-
-
-            if (active)
-            {
-                if (
-                    controlMap->
-                        IsFightingControlsEnabled()
-                )
-                {
-                    controlMap->
-                        ToggleControls(
-                            UEFlag::kFighting,
-                            false,
-                            false
-                        );
-
-
-                    g_skyDoomDisabledFightingControls =
-                        true;
-                }
-            }
-            else if (
-                g_skyDoomDisabledFightingControls
-            )
-            {
-                controlMap->
-                    ToggleControls(
-                        UEFlag::kFighting,
-                        true,
-                        false
-                    );
-
-
-                g_skyDoomDisabledFightingControls =
-                    false;
-            }
-        }
 
 
         /*
@@ -34815,7 +34899,11 @@ void
     }
 
     void ProcessSkyDoomPhysicalPickupsV15(
-        bool doomFresh
+        bool doomFresh,
+        // SKYDOOM_COMBAT_MODE: with DOOM mode off, keep tracking deaths
+        // (so later kills are not mistaken for new ones) but drop and
+        // collect nothing.
+        bool doomEnabled
     )
     {
         if (
@@ -34978,6 +35066,7 @@ void
                 now;
 
             if (
+                doomEnabled &&
                 !tracked->wasDead &&
                 isDead
             )
@@ -35010,6 +35099,11 @@ void
 
             tracked->wasDead =
                 isDead;
+        }
+
+        if (!doomEnabled)
+        {
+            return;
         }
 
         /*
@@ -39850,6 +39944,21 @@ SKSE::log::info(
 
 
 
+        /*
+            SKYDOOM_COMBAT_MODE
+
+            DOOM health only counts in DOOM combat mode (DOOM mode on and
+            a weapon drawn). Otherwise leave Skyrim's health alone; the
+            sensor re-arms from the current Skyrim health when combat
+            mode starts. Death/respawn tracking above runs in all modes.
+        */
+        if (!g_skyDoomCombat)
+        {
+            resetDamageSensor();
+            return;
+        }
+
+
         auto* actorValueOwner =
 
             player->
@@ -40463,9 +40572,6 @@ SKSE::log::info(
 				1u :
 				0u;
 
-		// Also covers the case where the input hook is not installed.
-		UpdateSkyDoomGameplayFocus();
-
 		auto* player =
 			RE::PlayerCharacter::
 				GetSingleton();
@@ -40501,6 +40607,10 @@ SKSE::log::info(
 
 		const bool doomFresh =
 			DoomHeartbeatIsFresh();
+
+		// SKYDOOM_COMBAT_MODE: after in_game is known, before the bridges.
+		// Also covers the case where the input hook is not installed.
+		UpdateSkyDoomModeState();
 
 
 
@@ -40556,13 +40666,15 @@ SKSE::log::info(
         );
         // SKYDOOM_PROCESS_PHYSICAL_PICKUPS_V15
         ProcessSkyDoomPhysicalPickupsV15(
-            doomFresh
+            doomFresh,
+            g_skyDoomEnabled
         );
 
         // SKYDOOM_APPLY_PRESENTATION_V4
+        // SKYDOOM_COMBAT_MODE: hide Skyrim's first-person model only in
+        // DOOM combat mode.
         ApplySkyDoomPresentation(
-            doomFresh &&
-            g_state->skyrim.in_game
+            g_skyDoomCombat
         );
 
 		if (

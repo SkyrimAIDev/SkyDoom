@@ -21,7 +21,7 @@
         { "id": "iNextWeaponKey:Controls", "text": "Next weapon", "type": "keymap", "ignoreConflicts": true, "help": "Cycle forward through the weapons you own.", "valueOptions": { "sourceType": "ModSettingInt" } },
         { "id": "iPrevWeaponKey:Controls", "text": "Previous weapon", "type": "keymap", "ignoreConflicts": true, "help": "Cycle backward through the weapons you own.", "valueOptions": { "sourceType": "ModSettingInt" } },
         { "id": "iMusicToggleKey:Controls", "text": "Toggle DOOM music", "type": "keymap", "ignoreConflicts": true, "help": "Turn the DOOM music on or off.", "valueOptions": { "sourceType": "ModSettingInt" } },
-        { "id": "iToggleHudKey:Controls", "text": "Toggle DOOM HUD", "type": "keymap", "ignoreConflicts": true, "help": "Show or hide the DOOM HUD and weapon. DOOM controls stay active. SkyDoom also hides them automatically while a menu or dialogue is open. Default: F11.", "valueOptions": { "sourceType": "ModSettingInt" } },
+        { "id": "iToggleDoomKey:Controls", "text": "Toggle DOOM mode", "type": "keymap", "ignoreConflicts": true, "help": "Turn DOOM mode on or off. With DOOM mode on, drawing a weapon switches to DOOM combat: DOOM HUD, weapons, health and music. Sheathe to return to Skyrim. Default: F11.", "valueOptions": { "sourceType": "ModSettingInt" } },
 
         { "text": "Controller", "type": "header", "position": 1 },
         { "id": "iFireButton:Controls", "text": "Fire", "type": "keymap", "ignoreConflicts": true, "help": "Fire the current DOOM weapon. Hold to keep firing. Default: Right Trigger.", "valueOptions": { "sourceType": "ModSettingInt" } },
@@ -35,7 +35,7 @@
         { "id": "iNextWeaponButton:Controls", "text": "Next weapon", "type": "keymap", "ignoreConflicts": true, "help": "Cycle forward through the weapons you own. Default: D-pad Right.", "valueOptions": { "sourceType": "ModSettingInt" } },
         { "id": "iPrevWeaponButton:Controls", "text": "Previous weapon", "type": "keymap", "ignoreConflicts": true, "help": "Cycle backward through the weapons you own. Default: D-pad Left.", "valueOptions": { "sourceType": "ModSettingInt" } },
         { "id": "iMusicToggleButton:Controls", "text": "Toggle DOOM music", "type": "keymap", "ignoreConflicts": true, "help": "Turn the DOOM music on or off.", "valueOptions": { "sourceType": "ModSettingInt" } },
-        { "id": "iToggleHudButton:Controls", "text": "Toggle DOOM HUD", "type": "keymap", "ignoreConflicts": true, "help": "Show or hide the DOOM HUD and weapon. DOOM controls stay active. SkyDoom also hides them automatically while a menu or dialogue is open.", "valueOptions": { "sourceType": "ModSettingInt" } }
+        { "id": "iToggleDoomButton:Controls", "text": "Toggle DOOM mode", "type": "keymap", "ignoreConflicts": true, "help": "Turn DOOM mode on or off. With DOOM mode on, drawing a weapon switches to DOOM combat: DOOM HUD, weapons, health and music. Sheathe to return to Skyrim.", "valueOptions": { "sourceType": "ModSettingInt" } }
       ]
     },
     {
@@ -43,7 +43,7 @@
       "cursorFillMode": "topToBottom",
       "content": [
         { "text": "Input", "type": "header" },
-        { "id": "bBlockSkyrimInput:Controls", "text": "Keep SkyDoom buttons from Skyrim", "type": "toggle", "help": "While SkyDoom is active, keys and buttons bound on the Controls page only control DOOM. For example, Fire no longer also swings your Skyrim weapon, 1-7 no longer equip favourites, and D-pad Left/Right no longer trigger Skyrim's own actions.", "valueOptions": { "sourceType": "ModSettingBool" } },
+        { "id": "bBlockSkyrimInput:Controls", "text": "Keep SkyDoom buttons from Skyrim", "type": "toggle", "help": "While DOOM combat mode is active, keys and buttons bound on the Controls page only control DOOM. For example, 1-7 no longer equip favourites, and D-pad Left/Right no longer trigger Skyrim's own actions.", "valueOptions": { "sourceType": "ModSettingBool" } },
 
         { "text": "DOOM.WAD", "type": "header" },
         { "id": "sWadPath:General", "text": "DOOM.WAD location", "type": "input", "help": "Full path to your own DOOM.WAD, for non-Steam installs. Leave empty to find it in your Steam libraries automatically. Takes effect the next time Skyrim starts.", "valueOptions": { "sourceType": "ModSettingString" } }
