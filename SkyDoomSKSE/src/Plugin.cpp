@@ -5,6 +5,7 @@
 #include "RE/B/bhkRigidBody.h"
 #include "RE/H/hkpRigidBody.h"
 #include "PCH.h"
+#include "Settings.h"
 #include "skydoom_protocol.h"
 
 #include <Windows.h>
@@ -140,7 +141,7 @@ namespace
 	// Advanced/testing overrides:
 	//   SKYDOOM_DOOM_EXE  = full path to chocolate-doom.exe
 	//                       (only with the SKYDOOM_DEV_OVERRIDES CMake option)
-	//   SKYDOOM_WAD_PATH  = full path to DOOM.WAD
+	//   [General] sWadPath in the SkyDoom MCM settings = full path to DOOM.WAD
 
 	std::wstring g_doomExePath;
 	std::wstring g_doomWorkingDirectory;
@@ -148,6 +149,20 @@ namespace
 
 	bool g_skyDoomPortablePathsInitialised =
 		false;
+
+	// SKYDOOM_SETTINGS: MCM Helper-backed settings (see Settings.h).
+	std::mutex g_settingsMutex;
+
+	SkyDoom::Settings::Values g_settings =
+		SkyDoom::Settings::Defaults();
+
+	SkyDoom::Settings::Values GetSkyDoomSettings()
+	{
+		std::scoped_lock lock(
+			g_settingsMutex);
+
+		return g_settings;
+	}
 
 
 	bool SkyDoomFileExists(
@@ -811,6 +826,63 @@ namespace
 	}
 
 
+	// SKYDOOM_SETTINGS: the plugin lives in Data\SKSE\Plugins, so the Data
+	// folder (holding MCM\Config and MCM\Settings) is two levels up.
+	void ReloadSkyDoomSettings()
+	{
+		std::wstring pluginDirectory;
+
+		if (
+			!SkyDoomGetPluginDirectory(
+				pluginDirectory)) {
+			logger::warn(
+				"SkyDoom settings: plugin folder unknown; using defaults");
+
+			return;
+		}
+
+		const auto dataDirectory =
+			std::filesystem::path(
+				pluginDirectory)
+				.parent_path()
+				.parent_path();
+
+		auto values =
+			SkyDoom::Settings::Load(
+				dataDirectory);
+
+		for (
+			std::size_t i = 0;
+			i < SkyDoom::Settings::kActionCount;
+			++i) {
+			const auto action =
+				static_cast<SkyDoom::Settings::Action>(i);
+
+			logger::info(
+				"SkyDoom binding {}={} {}={}",
+				SkyDoom::Settings::KeyboardKeyName(action),
+				values.bindings[i].keyboard,
+				SkyDoom::Settings::GamepadKeyName(action),
+				values.bindings[i].gamepad);
+		}
+
+		logger::info(
+			"SkyDoom settings: blockSkyrimInput={} wadPath={}",
+			values.blockSkyrimInput,
+			values.wadPath.empty() ?
+				std::string("(auto)") :
+				SkyDoomWideToUtf8(
+					values.wadPath));
+
+		std::scoped_lock lock(
+			g_settingsMutex);
+
+		g_settings =
+			std::move(
+				values);
+	}
+
+
 	bool SkyDoomDiscoverRuntimeExe(
 		std::wstring& a_exePath)
 	{
@@ -875,18 +947,25 @@ namespace
 	{
 		a_wadPath.clear();
 
-		std::wstring overridePath;
+		// SKYDOOM_SETTINGS: an explicit DOOM.WAD path (e.g. GOG installs)
+		// replaces the old SKYDOOM_WAD_PATH environment variable.
+		const auto overridePath =
+			GetSkyDoomSettings().wadPath;
 
-		if (
-			SkyDoomGetEnvironmentPath(
-				L"SKYDOOM_WAD_PATH",
-				overridePath) &&
-			SkyDoomFileExists(
-				overridePath)) {
-			a_wadPath =
-				overridePath;
+		if (!overridePath.empty()) {
+			if (
+				SkyDoomFileExists(
+					overridePath)) {
+				a_wadPath =
+					overridePath;
 
-			return true;
+				return true;
+			}
+
+			logger::warn(
+				"SkyDoom settings: sWadPath does not exist, searching Steam instead: {}",
+				SkyDoomWideToUtf8(
+					overridePath));
 		}
 
 		const auto steamRoots =
@@ -40644,6 +40723,8 @@ SKSE::log::info(
 	{
 		logger::info(
 			"SkyDoom Visual Overlay v4 DataLoaded");
+
+		ReloadSkyDoomSettings();
 
 		if (
 			!InitialiseSkyDoomPortablePaths()) {
