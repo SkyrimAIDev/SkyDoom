@@ -80,6 +80,9 @@ namespace SkyDoom::Settings
 		MusicMode musicMode = MusicMode::Combat;
 		bool keepStaminaFull = true;
 
+		// Switch from third to first person when DOOM combat starts.
+		bool firstPersonInCombat = true;
+
 		// [Balance] multipliers: DOOM weapon damage against Skyrim actors,
 		// and Skyrim damage before it reaches DOOM health.
 		float damageDealtMult = 1.0f;  // 0.1 - 10

@@ -178,6 +178,9 @@ namespace
 	std::atomic_bool g_skyDoomKeepStaminaFull =
 		true;
 
+	std::atomic_bool g_skyDoomFirstPersonInCombat =
+		true;
+
 	// SKYDOOM_BALANCE: MCM damage multipliers.
 	std::atomic<float> g_skyDoomDamageDealtMult =
 		1.0f;
@@ -915,11 +918,12 @@ namespace
 					values.wadPath));
 
 		logger::info(
-			"SkyDoom settings: enabled={} combatMode={} musicMode={} keepStaminaFull={}",
+			"SkyDoom settings: enabled={} combatMode={} musicMode={} keepStaminaFull={} firstPersonInCombat={}",
 			values.enabled,
 			static_cast<int>(values.combatMode),
 			static_cast<int>(values.musicMode),
-			values.keepStaminaFull);
+			values.keepStaminaFull,
+			values.firstPersonInCombat);
 
 		// Apply Enable SkyDoom at startup, and afterwards only when the
 		// MCM value itself changes, so closing the MCM after an unrelated
@@ -945,6 +949,9 @@ namespace
 
 		g_skyDoomKeepStaminaFull =
 			values.keepStaminaFull;
+
+		g_skyDoomFirstPersonInCombat =
+			values.firstPersonInCombat;
 
 		g_skyDoomDamageDealtMult =
 			values.damageDealtMult;
@@ -40918,6 +40925,66 @@ SKSE::log::info(
 			placed.size());
 	}
 
+	// SKYDOOM_COMBAT_CAMERA
+	//
+	// The DOOM HUD and weapon are a first-person view, so entering DOOM
+	// combat from the normal third-person camera switches to first person,
+	// and leaving combat switches back - but only if SkyDoom made the
+	// switch and the player is still in first person. Other cameras
+	// (horseback, furniture, killcams, dialogue, bleedout, free camera)
+	// are left alone. Main thread (UpdateSharedState).
+	void UpdateSkyDoomCombatCamera()
+	{
+		static bool wasCombat =
+			false;
+
+		static bool forcedFirstPerson =
+			false;
+
+		auto* camera =
+			RE::PlayerCamera::GetSingleton();
+
+		if (!camera) {
+			return;
+		}
+
+		const bool combat =
+			g_skyDoomCombat;
+
+		if (
+			combat &&
+			!wasCombat) {
+			if (
+				g_skyDoomFirstPersonInCombat &&
+				camera->IsInThirdPerson()) {
+				camera->ForceFirstPerson();
+
+				forcedFirstPerson =
+					true;
+
+				logger::info(
+					"SkyDoom combat camera: switched to first person");
+			}
+		} else if (
+			!combat &&
+			wasCombat) {
+			if (
+				forcedFirstPerson &&
+				camera->IsInFirstPerson()) {
+				camera->ForceThirdPerson();
+
+				logger::info(
+					"SkyDoom combat camera: back to third person");
+			}
+
+			forcedFirstPerson =
+				false;
+		}
+
+		wasCombat =
+			combat;
+	}
+
 	// SKYDOOM_COMBAT_STAMINA
 	//
 	// DOOM has no stamina and the DOOM HUD cannot show Skyrim's, so keep the
@@ -41027,6 +41094,9 @@ SKSE::log::info(
 		g_skyDoomCurrentSpaceId =
 			SkyDoomSpaceIdOf(
 				player);
+
+		// SKYDOOM_COMBAT_CAMERA
+		UpdateSkyDoomCombatCamera();
 
 		// SKYDOOM_COMBAT_STAMINA
 		if (
