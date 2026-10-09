@@ -40537,6 +40537,36 @@ SKSE::log::info(
 
 
 
+	// SKYDOOM_COMBAT_STAMINA
+	//
+	// DOOM has no stamina and the DOOM HUD cannot show Skyrim's, so keep the
+	// player's stamina full in DOOM combat mode and sprinting is never cut
+	// short. This only heals stamina damage, as natural regeneration does;
+	// nothing persistent changes. Outside combat, stamina works normally.
+	void KeepSkyDoomStaminaFull(
+		RE::PlayerCharacter* a_player)
+	{
+		if (!a_player) {
+			return;
+		}
+
+		const float damage =
+			a_player->GetActorValueModifier(
+				RE::ACTOR_VALUE_MODIFIER::kDamage,
+				RE::ActorValue::kStamina);
+
+		auto* actorValueOwner =
+			a_player->AsActorValueOwner();
+
+		if (
+			damage < 0.0f &&
+			actorValueOwner) {
+			actorValueOwner->RestoreActorValue(
+				RE::ActorValue::kStamina,
+				-damage);
+		}
+	}
+
 	void UpdateSharedState()
 	{
 		if (!g_state) {
@@ -40611,6 +40641,12 @@ SKSE::log::info(
 		// SKYDOOM_COMBAT_MODE: after in_game is known, before the bridges.
 		// Also covers the case where the input hook is not installed.
 		UpdateSkyDoomModeState();
+
+		// SKYDOOM_COMBAT_STAMINA
+		if (g_skyDoomCombat) {
+			KeepSkyDoomStaminaFull(
+				player);
+		}
 
 
 
