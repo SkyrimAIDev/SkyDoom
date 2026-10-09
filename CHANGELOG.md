@@ -8,9 +8,22 @@ first. Each build is made from its `release/<version>` branch, and its
 Each section starts with a `Status:` line (how far the build has been
 tested), followed by the changes since the previous build.
 
-## v0.1.7-beta - 2026-10-09
+## v0.1.8-beta - 2026-10-09
 
 Status: In testing.
+
+- New: DOOM weapons break Skyrim's destructible objects, such as the spider
+  webs that block dungeon passages, so you no longer have to leave DOOM
+  combat to cut through them. Works with the fist, chainsaw, pistol, shotgun
+  and chaingun (aim at the web); rockets, plasma and the BFG do not break
+  them yet. The MCM DOOM weapon damage multiplier applies.
+
+## v0.1.7-beta - 2026-10-09
+
+Status: In testing. One crash while saving in Bleak Falls Barrow, after
+SkyDoom was turned off in the MCM. The crash was inside Mod Organizer 2's
+virtual file system (usvfs) while it wrote the save file; SkyDoom was not
+involved in the crash.
 
 - New: drawing a weapon in third person switches to first person for DOOM
   combat, and sheathing switches back. Horseback and other special cameras
