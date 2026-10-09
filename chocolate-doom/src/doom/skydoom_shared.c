@@ -2643,6 +2643,16 @@ int SkyDoom_SharedInit(void)
 
     skydoom_guest_mode = M_ParmExists("-skydoomguest");
 
+    /*
+        Only the hidden guest launched by the SKSE plugin may attach.
+        A normal run of this exe must not join (and overwrite) a live
+        Skyrim session's shared state.
+    */
+    if (!skydoom_guest_mode)
+    {
+        return 0;
+    }
+
     skydoom_mapping =
         CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0,
                            sizeof(SkyDoomSharedState), SKYDOOM_MAPPING_NAME);
