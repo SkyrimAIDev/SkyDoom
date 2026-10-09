@@ -8833,6 +8833,17 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
             return;
         }
 
+        // SKYDOOM_CROSSHAIR_UI_TASK: the HUD movie is torn down and
+        // rebuilt during loads; leave it alone until the load finishes.
+        if (
+            ui->IsMenuOpen(
+                RE::LoadingMenu::MENU_NAME
+            )
+        )
+        {
+            return;
+        }
+
         auto menu =
             ui->
                 GetMenu(
@@ -8902,6 +8913,58 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 
         g_skyDoomSkyrimCrosshairMovieV15_7 =
             movie;
+    }
+
+    /*
+        SKYDOOM_CROSSHAIR_UI_TASK
+
+        Scaleform may only be used from Skyrim's UI thread. Calling
+        SetCrosshairEnabled on the HUD movie directly from Present
+        crashed (null read inside HUD Menu's Invoke) when Skyrim reloaded
+        after the player died, while the HUD movie was being rebuilt.
+
+        Present now queues the update as an SKSE UI task, with at most one
+        in flight so nothing piles up while a load blocks the UI thread.
+    */
+    std::atomic_bool
+        g_skyDoomCrosshairTaskPending =
+            false;
+
+    void QueueSkyDoomSkyrimCrosshairHidden(
+        bool hide
+    )
+    {
+        if (
+            g_skyDoomCrosshairTaskPending.exchange(
+                true
+            )
+        )
+        {
+            return;
+        }
+
+        auto* tasks =
+            SKSE::GetTaskInterface();
+
+        if (!tasks)
+        {
+            g_skyDoomCrosshairTaskPending =
+                false;
+
+            return;
+        }
+
+        tasks->AddUITask(
+            [hide]()
+            {
+                g_skyDoomCrosshairTaskPending =
+                    false;
+
+                SetSkyDoomSkyrimCrosshairHiddenV15_7(
+                    hide
+                );
+            }
+        );
     }
 
     void SetSkyDoomCrosshairPixelV15_7(
@@ -9795,7 +9858,8 @@ physicalMeleeKeyDown =
                 in_game &&
             DoomHeartbeatIsFresh();
 
-        SetSkyDoomSkyrimCrosshairHiddenV15_7(
+        // SKYDOOM_CROSSHAIR_UI_TASK: never call Scaleform from Present.
+        QueueSkyDoomSkyrimCrosshairHidden(
             skyDoomOwnsCrosshair
         );
 
