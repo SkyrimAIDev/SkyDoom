@@ -40572,6 +40572,25 @@ SKSE::log::info(
 	// STARTUP
 	// ========================================================
 
+	// SKYDOOM_MCM: SkyDoom_MCM.psc declares `Function OnConfigClose() Native`,
+	// which SkyUI calls whenever the SkyDoom MCM closes.
+	void SkyDoomOnConfigClose(
+		RE::TESQuest*)
+	{
+		ReloadSkyDoomSettings();
+	}
+
+	bool RegisterSkyDoomPapyrus(
+		RE::BSScript::IVirtualMachine* a_vm)
+	{
+		a_vm->RegisterFunction(
+			"OnConfigClose",
+			"SkyDoom_MCM",
+			SkyDoomOnConfigClose);
+
+		return true;
+	}
+
 	void OnDataLoaded()
 	{
 		logger::info(
@@ -40675,6 +40694,18 @@ SKSEPluginLoad(
 		"{} v{} loaded",
 		plugin->GetName(),
 		plugin->GetVersion());
+
+	const auto* papyrus =
+		SKSE::GetPapyrusInterface();
+
+	if (
+		!papyrus ||
+		!papyrus->Register(
+			RegisterSkyDoomPapyrus)) {
+		logger::warn(
+			"Could not register SkyDoom Papyrus functions; MCM changes "
+			"will apply after restarting Skyrim");
+	}
 
 	const auto* messaging =
 		SKSE::
