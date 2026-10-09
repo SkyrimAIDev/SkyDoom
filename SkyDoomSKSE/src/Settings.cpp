@@ -149,6 +149,25 @@ namespace SkyDoom::Settings
 			}
 		}
 
+		// Integer setting accepted only within [a_min, a_max].
+		void ReadInt(
+			const IniFile& a_ini, std::string_view a_section, std::string_view a_key,
+			std::int32_t a_min, std::int32_t a_max, std::int32_t& a_value)
+		{
+			const auto* text = Find(a_ini, a_section, a_key);
+			if (!text) {
+				return;
+			}
+
+			std::int32_t parsed = 0;
+			const auto* end = text->data() + text->size();
+			const auto [ptr, ec] = std::from_chars(text->data(), end, parsed);
+
+			if (ec == std::errc{} && ptr == end && parsed >= a_min && parsed <= a_max) {
+				a_value = parsed;
+			}
+		}
+
 		void ReadPath(const IniFile& a_ini, std::string_view a_section, std::string_view a_key, std::wstring& a_value)
 		{
 			const auto* text = Find(a_ini, a_section, a_key);
@@ -182,6 +201,17 @@ namespace SkyDoom::Settings
 
 			ReadBool(a_ini, "Controls", "bBlockSkyrimInput", a_values.blockSkyrimInput);
 			ReadPath(a_ini, "General", "sWadPath", a_values.wadPath);
+
+			ReadBool(a_ini, "General", "bEnabled", a_values.enabled);
+			ReadBool(a_ini, "General", "bKeepStaminaFull", a_values.keepStaminaFull);
+
+			auto combatMode = static_cast<std::int32_t>(a_values.combatMode);
+			ReadInt(a_ini, "General", "iCombatMode", 0, 1, combatMode);
+			a_values.combatMode = static_cast<CombatMode>(combatMode);
+
+			auto musicMode = static_cast<std::int32_t>(a_values.musicMode);
+			ReadInt(a_ini, "General", "iMusicMode", 0, 2, musicMode);
+			a_values.musicMode = static_cast<MusicMode>(musicMode);
 		}
 	}
 

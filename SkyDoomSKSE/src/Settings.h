@@ -49,6 +49,21 @@ namespace SkyDoom::Settings
 		std::int32_t gamepad = kUnbound;
 	};
 
+	// When DOOM combat mode applies (MCM enum index).
+	enum class CombatMode : std::int32_t
+	{
+		WeaponDrawn = 0,  // only while a weapon is drawn
+		Always = 1,       // whenever SkyDoom is enabled
+	};
+
+	// When DOOM music may play (MCM enum index).
+	enum class MusicMode : std::int32_t
+	{
+		Combat = 0,  // in DOOM combat mode
+		Always = 1,  // whenever SkyDoom is enabled
+		Off = 2,
+	};
+
 	struct Values
 	{
 		std::array<Binding, kActionCount> bindings{};
@@ -58,6 +73,12 @@ namespace SkyDoom::Settings
 
 		// Empty: discover DOOM.WAD in the user's Steam libraries.
 		std::wstring wadPath;
+
+		// [General]
+		bool enabled = true;
+		CombatMode combatMode = CombatMode::WeaponDrawn;
+		MusicMode musicMode = MusicMode::Combat;
+		bool keepStaminaFull = true;
 	};
 
 	[[nodiscard]] Values Defaults();

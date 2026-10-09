@@ -162,6 +162,21 @@ namespace
 		return g_settings;
 	}
 
+	// SKYDOOM_COMBAT_MODE: SkyDoom on/off. Starts from the MCM's Enable
+	// SkyDoom setting; the Toggle DOOM mode key flips it for the session.
+	std::atomic_bool g_skyDoomEnabled =
+		true;
+
+	// Settings read every frame, published by ReloadSkyDoomSettings.
+	std::atomic_bool g_skyDoomCombatAlways =
+		false;
+
+	std::atomic_int g_skyDoomMusicMode =
+		static_cast<int>(SkyDoom::Settings::MusicMode::Combat);
+
+	std::atomic_bool g_skyDoomKeepStaminaFull =
+		true;
+
 
 	bool SkyDoomFileExists(
 		const std::wstring& a_path)
@@ -871,6 +886,38 @@ namespace
 				std::string("(auto)") :
 				SkyDoomWideToUtf8(
 					values.wadPath));
+
+		logger::info(
+			"SkyDoom settings: enabled={} combatMode={} musicMode={} keepStaminaFull={}",
+			values.enabled,
+			static_cast<int>(values.combatMode),
+			static_cast<int>(values.musicMode),
+			values.keepStaminaFull);
+
+		// Apply Enable SkyDoom at startup, and afterwards only when the
+		// MCM value itself changes, so closing the MCM after an unrelated
+		// edit does not undo the session's Toggle DOOM mode key.
+		static std::optional<bool> lastEnabledSetting;
+
+		if (
+			!lastEnabledSetting ||
+			*lastEnabledSetting != values.enabled) {
+			g_skyDoomEnabled =
+				values.enabled;
+
+			lastEnabledSetting =
+				values.enabled;
+		}
+
+		g_skyDoomCombatAlways =
+			values.combatMode ==
+			SkyDoom::Settings::CombatMode::Always;
+
+		g_skyDoomMusicMode =
+			static_cast<int>(values.musicMode);
+
+		g_skyDoomKeepStaminaFull =
+			values.keepStaminaFull;
 
 		std::scoped_lock lock(
 			g_settingsMutex);
@@ -7345,9 +7392,6 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 	// Skyrim's UI, so nothing is drawn while a menu or dialogue has focus.
 	//
 	// State is computed on the main thread and handed to Present atomically.
-	std::atomic_bool g_skyDoomEnabled =
-		true;
-
 	std::atomic_bool g_skyDoomCombat =
 		false;
 
@@ -7419,12 +7463,16 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 		g_skyDoomGameplayFocus =
 			SkyDoomGameplayHasFocus();
 
-		const bool combat =
+		const bool guestReady =
 			g_skyDoomEnabled &&
 			g_state &&
 			g_state->skyrim.in_game &&
-			DoomHeartbeatIsFresh() &&
-			SkyDoomPlayerWeaponReady();
+			DoomHeartbeatIsFresh();
+
+		const bool combat =
+			guestReady &&
+			(g_skyDoomCombatAlways ||
+				SkyDoomPlayerWeaponReady());
 
 		if (
 			g_skyDoomCombat.exchange(
@@ -7453,12 +7501,26 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 			}
 		}
 
+		bool music =
+			false;
+
+		switch (static_cast<SkyDoom::Settings::MusicMode>(g_skyDoomMusicMode.load())) {
+		case SkyDoom::Settings::MusicMode::Combat:
+			music = combat;
+			break;
+
+		case SkyDoom::Settings::MusicMode::Always:
+			music = guestReady;
+			break;
+
+		default:
+			break;
+		}
+
 		if (g_state) {
-			// DOOM music plays in combat mode only.
 			g_state->skyrim.mode_flags =
-				combat ?
-					SKYDOOM_MODE_COMBAT | SKYDOOM_MODE_MUSIC :
-					0u;
+				(combat ? SKYDOOM_MODE_COMBAT : 0u) |
+				(music ? SKYDOOM_MODE_MUSIC : 0u);
 		}
 	}
 
@@ -40644,7 +40706,9 @@ SKSE::log::info(
 		UpdateSkyDoomModeState();
 
 		// SKYDOOM_COMBAT_STAMINA
-		if (g_skyDoomCombat) {
+		if (
+			g_skyDoomCombat &&
+			g_skyDoomKeepStaminaFull) {
 			KeepSkyDoomStaminaFull(
 				player);
 		}
