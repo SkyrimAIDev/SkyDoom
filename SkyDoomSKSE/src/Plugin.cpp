@@ -77,8 +77,6 @@ namespace
 	// SKYDOOM_PHYSICAL_LMB_V4
 	std::mutex g_inputRingMutex;
 
-	bool g_physicalFireDown =
-	    false;
 
     // ========================================================
     // SKYDOOM PISTOL COMBAT BRIDGE
@@ -7153,11 +7151,8 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 					code =
 						SKYDOOM_INPUT_RUN;
 				} else if (
-					name ==
-					userEvents->rightAttack) {
-					code =
-						SKYDOOM_INPUT_FIRE;
-				} else if (
+					// SKYDOOM_INPUT_BINDINGS: fire is the iFireKey /
+					// iFireButton binding, not Skyrim's Right Attack.
 					name ==
 					userEvents->activate) {
 					code =
@@ -7262,22 +7257,33 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 	{
 		std::uint16_t type;
 		std::uint16_t code;
+		bool hold;  // send release too (fire), not just press
 	};
 
 	// Indexed by SkyDoom::Settings::Action.
 	constexpr std::array<SkyDoomBindingAction, SkyDoom::Settings::kActionCount>
 		kSkyDoomBindingActions{ {
-			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_MELEE },
-			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_PISTOL },
-			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_SHOTGUN },
-			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_CHAINGUN },
-			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_ROCKET },
-			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_PLASMA },
-			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_BFG },
-			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_NEXT },
-			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_PREV },
-			{ SKYDOOM_INPUT_EVENT_MUSIC_TOGGLE, 0 },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_FIRE, true },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_MELEE, false },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_PISTOL, false },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_SHOTGUN, false },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_CHAINGUN, false },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_ROCKET, false },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_PLASMA, false },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_BFG, false },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_NEXT, false },
+			{ SKYDOOM_INPUT_EVENT_BUTTON, SKYDOOM_INPUT_WEAPON_PREV, false },
+			{ SKYDOOM_INPUT_EVENT_MUSIC_TOGGLE, 0, false },
 		} };
+
+	// For each key code, the hold action (fire) it is holding down, or -1.
+	// Main thread.
+	std::array<std::int8_t, SKSE::InputMap::kMaxMacros>
+		g_skyDoomHeldAction = [] {
+			std::array<std::int8_t, SKSE::InputMap::kMaxMacros> held{};
+			held.fill(-1);
+			return held;
+		}();
 
 	// Keys whose key-down was kept from Skyrim; their held/up events are
 	// kept from Skyrim too, so no control is left stuck down. Main thread.
@@ -7419,10 +7425,18 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 						if (
 							action &&
 							active) {
+							const auto& bound =
+								kSkyDoomBindingActions[*action];
+
 							PushInputEvent(
-								kSkyDoomBindingActions[*action].type,
-								kSkyDoomBindingActions[*action].code,
+								bound.type,
+								bound.code,
 								1);
+
+							if (bound.hold) {
+								g_skyDoomHeldAction[code] =
+									static_cast<std::int8_t>(*action);
+							}
 
 							swallow =
 								block;
@@ -7439,13 +7453,32 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 									true;
 							}
 						}
-					} else if (g_skyDoomSwallowedKeys[code]) {
-						swallow =
-							true;
+					} else {
+						// Always release a held action (fire), even if
+						// SkyDoom went inactive while the button was down.
+						if (
+							button->IsUp() &&
+							g_skyDoomHeldAction[code] >= 0) {
+							const auto& bound =
+								kSkyDoomBindingActions[g_skyDoomHeldAction[code]];
 
-						if (button->IsUp()) {
-							g_skyDoomSwallowedKeys[code] =
-								false;
+							PushInputEvent(
+								bound.type,
+								bound.code,
+								0);
+
+							g_skyDoomHeldAction[code] =
+								-1;
+						}
+
+						if (g_skyDoomSwallowedKeys[code]) {
+							swallow =
+								true;
+
+							if (button->IsUp()) {
+								g_skyDoomSwallowedKeys[code] =
+									false;
+							}
 						}
 					}
 				}
@@ -9678,92 +9711,6 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 			&nullSRV);
 	}
 
-    // ========================================================
-    // PHYSICAL MOUSE -> DOOM FIRE
-    // ========================================================
-
-    bool SkyDoomHasForegroundFocus()
-    {
-        const HWND foregroundWindow =
-            GetForegroundWindow();
-
-
-        if (!foregroundWindow)
-        {
-            return false;
-        }
-
-
-        DWORD foregroundProcess =
-            0;
-
-
-        GetWindowThreadProcessId(
-            foregroundWindow,
-            &foregroundProcess
-        );
-
-
-        return
-            foregroundProcess ==
-            GetCurrentProcessId();
-    }
-
-
-    void PollPhysicalDoomFire()
-    {
-        // SKYDOOM_REAL_SHOTGUN_V6
-        // SKYDOOM_REAL_CHAINGUN_V9
-        // SKYDOOM_REAL_MELEE_V10
-        // SKYDOOM_REAL_ROCKET_V11
-        // SKYDOOM_MUSIC_TOGGLE_V15_8
-        //
-        // SKYDOOM_INPUT_BINDINGS: the weapon slots (1-7) and music toggle
-        // (F10) moved to configurable bindings handled by
-        // HandleSkyDoomBindings(). Left mouse button fire stays here.
-
-        if (!g_state)
-        {
-            return;
-        }
-
-        const bool active =
-            g_state->skyrim.in_game &&
-            !g_state->skyrim.paused &&
-            DoomHeartbeatIsFresh() &&
-            SkyDoomHasForegroundFocus();
-
-        bool physicalFireDown = false;
-
-        if (active)
-        {
-            physicalFireDown =
-                (
-                    GetAsyncKeyState(
-                        VK_LBUTTON
-                    ) &
-                    0x8000
-                ) != 0;
-        }
-
-        if (
-            physicalFireDown !=
-            g_physicalFireDown
-        )
-        {
-            g_physicalFireDown =
-                physicalFireDown;
-
-            PushInputEvent(
-                SKYDOOM_INPUT_EVENT_BUTTON,
-                SKYDOOM_INPUT_FIRE,
-                physicalFireDown ?
-                    1 :
-                    0
-            );
-        }
-    }
-
 
 
 	// ========================================================
@@ -9794,9 +9741,6 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         QueueSkyDoomSkyrimCrosshairHidden(
             skyDoomOwnsCrosshair
         );
-
-        // SKYDOOM_POLL_PHYSICAL_LMB_V4
-        PollPhysicalDoomFire();
 
 		RenderSkyDoomOverlay(
 			swapChain);

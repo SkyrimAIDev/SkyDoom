@@ -10,6 +10,7 @@
       "cursorFillMode": "topToBottom",
       "content": [
         { "text": "Keyboard and mouse", "type": "header" },
+        { "id": "iFireKey:Controls", "text": "Fire", "type": "keymap", "ignoreConflicts": true, "help": "Fire the current DOOM weapon. Hold to keep firing. Default: left mouse button.", "valueOptions": { "sourceType": "ModSettingInt" } },
         { "id": "iMeleeKey:Controls", "text": "Melee", "type": "keymap", "ignoreConflicts": true, "help": "Switch to the fist, or the chainsaw if you have it. Press again to alternate.", "valueOptions": { "sourceType": "ModSettingInt" } },
         { "id": "iPistolKey:Controls", "text": "Pistol", "type": "keymap", "ignoreConflicts": true, "help": "Switch to the pistol.", "valueOptions": { "sourceType": "ModSettingInt" } },
         { "id": "iShotgunKey:Controls", "text": "Shotgun", "type": "keymap", "ignoreConflicts": true, "help": "Switch to the shotgun.", "valueOptions": { "sourceType": "ModSettingInt" } },
@@ -22,6 +23,7 @@
         { "id": "iMusicToggleKey:Controls", "text": "Toggle DOOM music", "type": "keymap", "ignoreConflicts": true, "help": "Turn the DOOM music on or off.", "valueOptions": { "sourceType": "ModSettingInt" } },
 
         { "text": "Controller", "type": "header", "position": 1 },
+        { "id": "iFireButton:Controls", "text": "Fire", "type": "keymap", "ignoreConflicts": true, "help": "Fire the current DOOM weapon. Hold to keep firing. Default: Right Trigger.", "valueOptions": { "sourceType": "ModSettingInt" } },
         { "id": "iMeleeButton:Controls", "text": "Melee", "type": "keymap", "ignoreConflicts": true, "help": "Switch to the fist, or the chainsaw if you have it. Press again to alternate.", "valueOptions": { "sourceType": "ModSettingInt" } },
         { "id": "iPistolButton:Controls", "text": "Pistol", "type": "keymap", "ignoreConflicts": true, "help": "Switch to the pistol.", "valueOptions": { "sourceType": "ModSettingInt" } },
         { "id": "iShotgunButton:Controls", "text": "Shotgun", "type": "keymap", "ignoreConflicts": true, "help": "Switch to the shotgun.", "valueOptions": { "sourceType": "ModSettingInt" } },
@@ -31,8 +33,7 @@
         { "id": "iBfgButton:Controls", "text": "BFG 9000", "type": "keymap", "ignoreConflicts": true, "help": "Switch to the BFG 9000.", "valueOptions": { "sourceType": "ModSettingInt" } },
         { "id": "iNextWeaponButton:Controls", "text": "Next weapon", "type": "keymap", "ignoreConflicts": true, "help": "Cycle forward through the weapons you own. Default: D-pad Right.", "valueOptions": { "sourceType": "ModSettingInt" } },
         { "id": "iPrevWeaponButton:Controls", "text": "Previous weapon", "type": "keymap", "ignoreConflicts": true, "help": "Cycle backward through the weapons you own. Default: D-pad Left.", "valueOptions": { "sourceType": "ModSettingInt" } },
-        { "id": "iMusicToggleButton:Controls", "text": "Toggle DOOM music", "type": "keymap", "ignoreConflicts": true, "help": "Turn the DOOM music on or off.", "valueOptions": { "sourceType": "ModSettingInt" } },
-        { "text": "Fire", "type": "text", "help": "Fire uses Skyrim's own Right Attack/Block control (left mouse button or Right Trigger), so it follows your Skyrim controls.", "valueOptions": { "value": "Right Attack" } }
+        { "id": "iMusicToggleButton:Controls", "text": "Toggle DOOM music", "type": "keymap", "ignoreConflicts": true, "help": "Turn the DOOM music on or off.", "valueOptions": { "sourceType": "ModSettingInt" } }
       ]
     },
     {
@@ -40,7 +41,7 @@
       "cursorFillMode": "topToBottom",
       "content": [
         { "text": "Input", "type": "header" },
-        { "id": "bBlockSkyrimInput:Controls", "text": "Keep SkyDoom buttons from Skyrim", "type": "toggle", "help": "While SkyDoom is active, keys and buttons bound on the Controls page only control DOOM. For example, 1-7 no longer equip favourites, and D-pad Left/Right no longer trigger Skyrim's own actions.", "valueOptions": { "sourceType": "ModSettingBool" } },
+        { "id": "bBlockSkyrimInput:Controls", "text": "Keep SkyDoom buttons from Skyrim", "type": "toggle", "help": "While SkyDoom is active, keys and buttons bound on the Controls page only control DOOM. For example, Fire no longer also swings your Skyrim weapon, 1-7 no longer equip favourites, and D-pad Left/Right no longer trigger Skyrim's own actions.", "valueOptions": { "sourceType": "ModSettingBool" } },
 
         { "text": "DOOM.WAD", "type": "header" },
         { "id": "sWadPath:General", "text": "DOOM.WAD location", "type": "input", "help": "Full path to your own DOOM.WAD, for non-Steam installs. Leave empty to find it in your Steam libraries automatically. Takes effect the next time Skyrim starts.", "valueOptions": { "sourceType": "ModSettingString" } }

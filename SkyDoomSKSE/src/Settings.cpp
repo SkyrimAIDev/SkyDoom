@@ -18,9 +18,11 @@ namespace SkyDoom::Settings
 			std::int32_t gamepadDefault;
 		};
 
-		// Keyboard defaults keep v0.1.0-beta's layout (1-7, F10).
-		// Controller defaults: D-pad Right/Left cycle weapons.
+		// Keyboard defaults keep v0.1.0-beta's layout (LMB, 1-7, F10).
+		// Controller defaults: Right Trigger fires, D-pad Right/Left cycle
+		// weapons.
 		constexpr std::array<ActionInfo, kActionCount> kActions{ {
+			{ "iFireKey", "iFireButton", 256, 281 },                         // LMB, RT
 			{ "iMeleeKey", "iMeleeButton", 0x02, kUnbound },                 // 1
 			{ "iPistolKey", "iPistolButton", 0x03, kUnbound },               // 2
 			{ "iShotgunKey", "iShotgunButton", 0x04, kUnbound },             // 3

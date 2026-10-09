@@ -16,10 +16,11 @@
  */
 namespace SkyDoom::Settings
 {
-	// DOOM-side actions that can be bound. Fire stays on Skyrim's
-	// "Right Attack/Block" control, so it follows the user's Skyrim layout.
+	// DOOM-side actions that can be bound. Fire is held (press and release
+	// are both sent); the others act on press.
 	enum class Action : std::size_t
 	{
+		Fire,
 		Melee,
 		Pistol,
 		Shotgun,
