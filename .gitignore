@@ -27,6 +27,7 @@ installed/
 *.bak
 *.orig
 *.rej
+*.WORKING-*
 
 # Game data - NEVER COMMIT
 *.wad
