@@ -8,9 +8,18 @@ first. Each build is made from its `release/<version>` branch, and its
 Each section starts with a `Status:` line (how far the build has been
 tested), followed by the changes since the previous build.
 
-## v0.1.6-beta - 2026-10-09
+## v0.1.7-beta - 2026-10-09
 
 Status: In testing.
+
+- New: drawing a weapon in third person switches to first person for DOOM
+  combat, and sheathing switches back. Horseback and other special cameras
+  are left alone. Can be turned off in the MCM (First person in DOOM
+  combat).
+
+## v0.1.6-beta - 2026-10-09
+
+Status: Built but not tested; superseded by v0.1.7-beta.
 
 - New: DOOM stashes in dungeons. The first time you enter a dungeon area in
   a session, a few DOOM items appear on top of its chests, barrels and urns,
