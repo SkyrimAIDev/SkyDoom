@@ -79,6 +79,11 @@ namespace SkyDoom::Settings
 		CombatMode combatMode = CombatMode::WeaponDrawn;
 		MusicMode musicMode = MusicMode::Combat;
 		bool keepStaminaFull = true;
+
+		// [Balance] multipliers: DOOM weapon damage against Skyrim actors,
+		// and Skyrim damage before it reaches DOOM health.
+		float damageDealtMult = 1.0f;  // 0.1 - 10
+		float damageTakenMult = 1.0f;  // 0.1 - 5
 	};
 
 	[[nodiscard]] Values Defaults();

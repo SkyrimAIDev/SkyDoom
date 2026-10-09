@@ -1,6 +1,7 @@
 #include "Settings.h"
 
 #include <charconv>
+#include <cmath>
 #include <fstream>
 #include <iterator>
 #include <map>
@@ -168,6 +169,25 @@ namespace SkyDoom::Settings
 			}
 		}
 
+		// Finite float setting accepted only within [a_min, a_max].
+		void ReadFloat(
+			const IniFile& a_ini, std::string_view a_section, std::string_view a_key,
+			float a_min, float a_max, float& a_value)
+		{
+			const auto* text = Find(a_ini, a_section, a_key);
+			if (!text) {
+				return;
+			}
+
+			float parsed = 0.0f;
+			const auto* end = text->data() + text->size();
+			const auto [ptr, ec] = std::from_chars(text->data(), end, parsed);
+
+			if (ec == std::errc{} && ptr == end && std::isfinite(parsed) && parsed >= a_min && parsed <= a_max) {
+				a_value = parsed;
+			}
+		}
+
 		void ReadPath(const IniFile& a_ini, std::string_view a_section, std::string_view a_key, std::wstring& a_value)
 		{
 			const auto* text = Find(a_ini, a_section, a_key);
@@ -212,6 +232,9 @@ namespace SkyDoom::Settings
 			auto musicMode = static_cast<std::int32_t>(a_values.musicMode);
 			ReadInt(a_ini, "General", "iMusicMode", 0, 2, musicMode);
 			a_values.musicMode = static_cast<MusicMode>(musicMode);
+
+			ReadFloat(a_ini, "Balance", "fDamageDealtMult", 0.1f, 10.0f, a_values.damageDealtMult);
+			ReadFloat(a_ini, "Balance", "fDamageTakenMult", 0.1f, 5.0f, a_values.damageTakenMult);
 		}
 	}
 

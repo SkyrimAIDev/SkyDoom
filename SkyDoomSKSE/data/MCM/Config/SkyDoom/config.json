@@ -54,6 +54,15 @@
         { "text": "DOOM.WAD", "type": "header" },
         { "id": "sWadPath:General", "text": "DOOM.WAD location", "type": "input", "help": "Full path to your own DOOM.WAD, for non-Steam installs. Leave empty to find it in your Steam libraries automatically. Takes effect the next time Skyrim starts.", "valueOptions": { "sourceType": "ModSettingString" } }
       ]
+    },
+    {
+      "pageDisplayName": "Balance",
+      "cursorFillMode": "topToBottom",
+      "content": [
+        { "text": "Damage", "type": "header" },
+        { "id": "fDamageDealtMult:Balance", "text": "DOOM weapon damage", "type": "slider", "help": "Multiplies DOOM weapon damage against Skyrim enemies. A DOOM pistol shot does 5-15, while leveled Skyrim enemies can have hundreds of health, so raise this as you level up. Default: 1.00x.", "valueOptions": { "min": 0.1, "max": 10.0, "step": 0.1, "formatString": "{2}x", "sourceType": "ModSettingFloat" } },
+        { "id": "fDamageTakenMult:Balance", "text": "Damage taken in DOOM combat", "type": "slider", "help": "Multiplies Skyrim damage before it reaches your DOOM health (100-200 at most). Lower it if high-level enemies kill you in a few hits. Default: 1.00x.", "valueOptions": { "min": 0.1, "max": 5.0, "step": 0.05, "formatString": "{2}x", "sourceType": "ModSettingFloat" } }
+      ]
     }
   ]
 }

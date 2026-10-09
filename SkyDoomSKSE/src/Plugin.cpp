@@ -177,6 +177,22 @@ namespace
 	std::atomic_bool g_skyDoomKeepStaminaFull =
 		true;
 
+	// SKYDOOM_BALANCE: MCM damage multipliers.
+	std::atomic<float> g_skyDoomDamageDealtMult =
+		1.0f;
+
+	std::atomic<float> g_skyDoomDamageTakenMult =
+		1.0f;
+
+	// DOOM weapon damage as applied to a Skyrim actor.
+	float SkyDoomScaledDamage(
+		std::int32_t a_doomDamage)
+	{
+		return
+			static_cast<float>(a_doomDamage) *
+			g_skyDoomDamageDealtMult;
+	}
+
 
 	bool SkyDoomFileExists(
 		const std::wstring& a_path)
@@ -918,6 +934,17 @@ namespace
 
 		g_skyDoomKeepStaminaFull =
 			values.keepStaminaFull;
+
+		g_skyDoomDamageDealtMult =
+			values.damageDealtMult;
+
+		g_skyDoomDamageTakenMult =
+			values.damageTakenMult;
+
+		logger::info(
+			"SkyDoom settings: damageDealtMult={} damageTakenMult={}",
+			values.damageDealtMult,
+			values.damageTakenMult);
 
 		std::scoped_lock lock(
 			g_settingsMutex);
@@ -12533,12 +12560,10 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         }
 
 
+        // SKYDOOM_BALANCE
         const float damage =
-
-            static_cast<float>(
-
+            SkyDoomScaledDamage(
                 doomDamage
-
             );
 
 
@@ -13710,12 +13735,10 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         }
 
 
+        // SKYDOOM_BALANCE
         const float damage =
-
-            static_cast<float>(
-
+            SkyDoomScaledDamage(
                 doomDamage
-
             );
 
 
@@ -14889,12 +14912,10 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         }
 
 
+        // SKYDOOM_BALANCE
         const float damage =
-
-            static_cast<float>(
-
+            SkyDoomScaledDamage(
                 doomDamage
-
             );
 
 
@@ -16070,12 +16091,10 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         }
 
 
+        // SKYDOOM_BALANCE
         const float damage =
-
-            static_cast<float>(
-
+            SkyDoomScaledDamage(
                 doomDamage
-
             );
 
 
@@ -28847,12 +28866,7 @@ float screenX =
                     actor->
 
                         DoDamage(
-
-                            static_cast<float>(
-
-                                splashDamage
-
-                            ),
+                                SkyDoomScaledDamage(splashDamage),  // SKYDOOM_BALANCE
 
                             player,
 
@@ -33239,12 +33253,7 @@ void
                         target->
 
                             DoDamage(
-
-                                static_cast<float>(
-
-                                    doomDamage
-
-                                ),
+                                SkyDoomScaledDamage(doomDamage),  // SKYDOOM_BALANCE
 
                                 player,
 
@@ -33574,9 +33583,7 @@ void
                     {
                         target->
                             DoDamage(
-                                static_cast<float>(
-                                    doomDamage
-                                ),
+                                SkyDoomScaledDamage(doomDamage),  // SKYDOOM_BALANCE
                                 player,
                                 true
                             );
@@ -37033,12 +37040,7 @@ void
                         target->
 
                             DoDamage(
-
-                                static_cast<float>(
-
-                                    doomDamage
-
-                                ),
+                                SkyDoomScaledDamage(doomDamage),  // SKYDOOM_BALANCE
 
                                 player,
 
@@ -40480,11 +40482,25 @@ SKSE::log::info(
 
 
 
-        const float accumulatedDamage =
-
-            hostLoss +
-
+        // SKYDOOM_BALANCE: scale before converting, and clamp so the
+        // float -> int32 conversion below is always defined.
+        float accumulatedDamage =
+            hostLoss *
+                g_skyDoomDamageTakenMult +
             fractionalDamage;
+
+        if (
+            !std::isfinite(accumulatedDamage) ||
+            accumulatedDamage < 0.0f)
+        {
+            accumulatedDamage =
+                0.0f;
+        }
+        else if (accumulatedDamage > 100000.0f)
+        {
+            accumulatedDamage =
+                100000.0f;
+        }
 
 
 
