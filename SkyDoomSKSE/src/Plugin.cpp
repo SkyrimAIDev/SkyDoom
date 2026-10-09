@@ -9768,6 +9768,18 @@ physicalMeleeKeyDown =
 			return false;
 		}
 
+		// Publish the originals before patching, so a hooked entry can
+		// never call through a null original.
+		g_originalPresent =
+			reinterpret_cast<
+				PresentFn>(
+				vtable[8]);
+
+		g_originalResizeBuffers =
+			reinterpret_cast<
+				ResizeBuffersFn>(
+				vtable[13]);
+
 		void* originalPresent =
 			nullptr;
 
@@ -9794,21 +9806,20 @@ physicalMeleeKeyDown =
 					void*>(
 					&HookResizeBuffers),
 				&originalResize)) {
+			// Roll back Present so the swap chain is left untouched.
+			void* ignored =
+				nullptr;
+
+			PatchVTableEntry(
+				&vtable[8],
+				originalPresent,
+				&ignored);
+
 			logger::error(
 				"Could not hook IDXGISwapChain::ResizeBuffers");
 
 			return false;
 		}
-
-		g_originalPresent =
-			reinterpret_cast<
-				PresentFn>(
-				originalPresent);
-
-		g_originalResizeBuffers =
-			reinterpret_cast<
-				ResizeBuffersFn>(
-				originalResize);
 
 		g_renderHookInstalled =
 			true;
