@@ -34047,6 +34047,10 @@ void
 
         std::uint64_t requestMs =
             0u;
+
+        // SKYDOOM_PICKUP_SPACE: interior cell or worldspace FormID.
+        RE::FormID spaceId =
+            0;
     };
 
     std::array<
@@ -34065,6 +34069,46 @@ void
     std::int32_t
         g_skyDoomNextPickupRequestIdV15 =
             1;
+
+    /*
+        SKYDOOM_PICKUP_SPACE
+
+        Every interior cell has its own coordinate space, so a pickup is
+        only drawn and collected in the space it was dropped in: its
+        interior cell, or the worldspace for exteriors. Without this, an
+        item left in one interior appeared (and could be collected) at
+        the same coordinates in another. Published by UpdateSharedState.
+    */
+    std::atomic<RE::FormID>
+        g_skyDoomCurrentSpaceId =
+            0;
+
+    RE::FormID SkyDoomSpaceIdOf(
+        RE::PlayerCharacter* a_player)
+    {
+        auto* cell =
+            a_player ?
+                a_player->GetParentCell() :
+                nullptr;
+
+        if (!cell)
+        {
+            return 0;
+        }
+
+        if (cell->IsInteriorCell())
+        {
+            return cell->GetFormID();
+        }
+
+        auto* worldspace =
+            a_player->GetWorldspace();
+
+        return
+            worldspace ?
+                worldspace->GetFormID() :
+                cell->GetFormID();
+    }
 
     // ========================================================
     // SKYDOOM_RESOURCE_DROPS_V15_3
@@ -34790,6 +34834,9 @@ void
         selected->doomToSkyrimScale =
             doomToSkyrimScale;
 
+        selected->spaceId =
+            g_skyDoomCurrentSpaceId.load();
+
         selected->spawnMs =
             now;
 
@@ -34890,6 +34937,9 @@ void
 
         selected->doomToSkyrimScale =
             doomToSkyrimScale;
+
+        selected->spaceId =
+            g_skyDoomCurrentSpaceId.load();
 
         selected->spawnMs =
             now;
@@ -35293,6 +35343,21 @@ void
             {
                 continue;
             }
+
+            if (
+
+                pickup.spaceId !=
+
+                g_skyDoomCurrentSpaceId.load()
+
+            )
+
+            {
+
+                continue;
+
+            }
+
 
             const float dx =
                 playerPosition.x -
@@ -35998,6 +36063,15 @@ void
         {
 
             if (!pickup.active)
+            {
+                continue;
+            }
+
+            // SKYDOOM_PICKUP_SPACE
+            if (
+                pickup.spaceId !=
+                g_skyDoomCurrentSpaceId.load()
+            )
             {
                 continue;
             }
@@ -40750,6 +40824,11 @@ SKSE::log::info(
 		// SKYDOOM_COMBAT_MODE: after in_game is known, before the bridges.
 		// Also covers the case where the input hook is not installed.
 		UpdateSkyDoomModeState();
+
+		// SKYDOOM_PICKUP_SPACE: before pickups are spawned or collected.
+		g_skyDoomCurrentSpaceId =
+			SkyDoomSpaceIdOf(
+				player);
 
 		// SKYDOOM_COMBAT_STAMINA
 		if (
