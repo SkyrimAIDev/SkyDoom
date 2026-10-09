@@ -517,6 +517,18 @@ static void SkyDoom_ApplyInputEvent(const SkyDoomInputEvent *event)
 
                 break;
 
+            case SKYDOOM_LOCK_STATUS_DOOR_BUSTED:
+
+                players[consoleplayer].message = "DOOR BUSTED!";
+
+                break;
+
+            case SKYDOOM_LOCK_STATUS_GATE_BUSTED:
+
+                players[consoleplayer].message = "GATE BUSTED!";
+
+                break;
+
             default:
 
                 break;

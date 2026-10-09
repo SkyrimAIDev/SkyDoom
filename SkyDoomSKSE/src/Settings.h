@@ -86,6 +86,10 @@ namespace SkyDoom::Settings
 		// Point-blank DOOM shotgun blasts break door and container locks.
 		bool shotgunBreaksLocks = true;
 
+		// DOOM rocket blasts open any door, even ones that need a key.
+		// Off by default: it can skip puzzles and break quests.
+		bool rocketBustsDoors = false;
+
 		// [Balance] multipliers: DOOM weapon damage against Skyrim actors,
 		// and Skyrim damage before it reaches DOOM health.
 		float damageDealtMult = 1.0f;  // 0.1 - 10

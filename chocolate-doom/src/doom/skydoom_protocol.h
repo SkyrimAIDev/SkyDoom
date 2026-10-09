@@ -52,6 +52,10 @@
 #define SKYDOOM_LOCK_STATUS_BROKEN     2u
 #define SKYDOOM_LOCK_STATUS_NEEDS_KEY  3u
 
+/* SKYDOOM_DOOR_BUSTER: a rocket blast opened a door or a gate. */
+#define SKYDOOM_LOCK_STATUS_DOOR_BUSTED 4u
+#define SKYDOOM_LOCK_STATUS_GATE_BUSTED 5u
+
 #define SKYDOOM_PICKUP_NONE              0u
 #define SKYDOOM_PICKUP_MEDIKIT           1u
 #define SKYDOOM_PICKUP_ARMOR             2u

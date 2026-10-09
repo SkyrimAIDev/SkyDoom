@@ -186,6 +186,9 @@ namespace
 	std::atomic_bool g_skyDoomShotgunBreaksLocks =
 		true;
 
+	std::atomic_bool g_skyDoomRocketBustsDoors =
+		false;
+
 	// SKYDOOM_BALANCE: MCM damage multipliers.
 	std::atomic<float> g_skyDoomDamageDealtMult =
 		1.0f;
@@ -923,13 +926,14 @@ namespace
 					values.wadPath));
 
 		logger::info(
-			"SkyDoom settings: enabled={} combatMode={} musicMode={} keepStaminaFull={} firstPersonInCombat={} shotgunBreaksLocks={}",
+			"SkyDoom settings: enabled={} combatMode={} musicMode={} keepStaminaFull={} firstPersonInCombat={} shotgunBreaksLocks={} rocketBustsDoors={}",
 			values.enabled,
 			static_cast<int>(values.combatMode),
 			static_cast<int>(values.musicMode),
 			values.keepStaminaFull,
 			values.firstPersonInCombat,
-			values.shotgunBreaksLocks);
+			values.shotgunBreaksLocks,
+			values.rocketBustsDoors);
 
 		// Apply Enable SkyDoom at startup, and afterwards only when the
 		// MCM value itself changes, so closing the MCM after an unrelated
@@ -961,6 +965,9 @@ namespace
 
 		g_skyDoomShotgunBreaksLocks =
 			values.shotgunBreaksLocks;
+
+		g_skyDoomRocketBustsDoors =
+			values.rocketBustsDoors;
 
 		g_skyDoomDamageDealtMult =
 			values.damageDealtMult;
@@ -11752,6 +11759,54 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         kSkyDoomAimRayStartOffset =
             16.0f;
 
+    // A big hit can skip destruction stages, and Skyrim then sends a single
+    // stage-changed event (old -> final). Scripts that act on one step,
+    // like the stockade barricade that removes its invisible collision only
+    // on stage 3 -> 4, would miss it. So damage is dealt in steps of a
+    // fifth of the object's health (stages are at least a quarter apart).
+    void DamageSkyDoomDestructibleObject(
+        RE::TESObjectREFR* a_ref,
+        const RE::BGSDestructibleObjectForm& a_destructible,
+        float a_damage
+    )
+    {
+        const float health =
+            a_destructible.data ?
+                static_cast<float>(
+                    a_destructible.data->health
+                ) :
+                0.0f;
+
+        const float step =
+            health > 0.0f ?
+                health * 0.2f :
+                a_damage;
+
+        float remaining =
+            a_damage;
+
+        for (
+            int i = 0;
+            remaining > 0.0f && i < 16;
+            ++i
+        )
+        {
+            const float chunk =
+                std::min(
+                    step,
+                    remaining
+                );
+
+            a_ref->DamageObject(
+                chunk,
+                kSkyDoomBypassExternalDamageRules
+            );
+
+            remaining -=
+                chunk;
+        }
+    }
+
     // Casts a ray between two world points with the player's collision
     // filter, so it hits what the player would bump into (walls, doors,
     // chests, webs). Returns true if it hit anything; a_hitRef is the
@@ -11936,9 +11991,10 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
                 a_doomDamage
             );
 
-        ref->DamageObject(
-            damage,
-            kSkyDoomBypassExternalDamageRules
+        DamageSkyDoomDestructibleObject(
+            ref,
+            *destructible,
+            damage
         );
 
         logger::info(
@@ -29060,6 +29116,761 @@ float screenX =
 
 
 
+    // ========================================================
+    // SKYDOOM ROCKET BLAST: OBJECTS
+    // ========================================================
+
+    /*
+        SKYDOOM_ROCKET_BLAST_OBJECTS
+
+        Rocket explosions also hit objects, not just actors.
+        ApplySkyDoomRocketSplash runs once per explosion (wall hit, actor
+        hit or timed-out impact) and calls this with the explosion point
+        and DOOM's 128-unit splash radius in Skyrim units. It visits the
+        non-actor references whose bound sphere reaches into the blast
+        and that the explosion can see:
+
+        - destructible objects (spider webs, barricades, ...) take DOOM's
+          splash damage, 128 minus the distance in DOOM units, scaled by
+          the MCM damage multiplier, like any DOOM weapon hit;
+        - SKYDOOM_DOOR_BUSTER (MCM, off by default) opens doors and gates,
+          see BustSkyDoomDoor and BustSkyDoomGate.
+
+        Main thread.
+    */
+    // References are found by their origin, which can be well off the
+    // centre of a large object.
+    constexpr float
+        kSkyDoomRocketBlastSearchSlack =
+            300.0f;
+
+    /*
+        SKYDOOM_DOOR_BUSTER
+
+        For getting unstuck: a rocket blast opens what blocks a passage,
+        the way the game's own scripts open it, so script state stays
+        consistent:
+
+        - doors are unlocked, even ones that need a key (blasting an owned
+          lock is a crime if seen, as with the shotgun). Load doors stay
+          shut; the player walks through. Other doors that look like a
+          passage (upright, at least kSkyDoomPassageDoorHeight tall, no
+          trap) are opened like Papyrus SetOpen(true): ActivateRef with no
+          activator (or an activate parent for "activated from somewhere
+          else" doors), which opens without the door's lock or key logic.
+        - doors barred from the other side (barredDoor + doorBar) get
+          their bar raised through doorBar.SetBarPosition(true), which
+          also clears the door's barred flag, its activation block and the
+          NPC navcut, before the door opens. Other activation-blocked
+          doors are run by scripts or quests and are left shut.
+        - gates and portcullises: every gate activated together with the
+          one hit (children of the same lever or trap linker) is opened
+          with default2StateActivator.SetOpen(true), as quest scripts do,
+          or, for NorPortcullisSCRIPT gates at rest closed, activated
+          once. The lever keeps its pose.
+
+        Rubble, planks, ice walls, bridges, puzzle doors and traps are
+        never touched.
+    */
+    constexpr float
+        kSkyDoomPassageDoorHeight =
+            140.0f;
+
+    // Papyrus script object bound to a reference, or empty.
+    RE::BSTSmartPointer<RE::BSScript::Object> FindSkyDoomBoundScript(
+        RE::TESObjectREFR* a_ref,
+        const char* a_scriptName
+    )
+    {
+        RE::BSTSmartPointer<RE::BSScript::Object> object;
+
+        auto* vm =
+            RE::BSScript::Internal::VirtualMachine::GetSingleton();
+
+        auto* policy =
+            vm ?
+                vm->GetObjectHandlePolicy() :
+                nullptr;
+
+        if (
+            !a_ref ||
+            !policy
+        )
+        {
+            return object;
+        }
+
+        const auto handle =
+            policy->GetHandleForObject(
+                a_ref->GetFormType(),
+                a_ref
+            );
+
+        if (handle != policy->EmptyHandle())
+        {
+            vm->FindBoundObject(
+                handle,
+                a_scriptName,
+                object
+            );
+        }
+
+        return object;
+    }
+
+    // Calls a Papyrus function (or event) on a bound script object.
+    void CallSkyDoomScript(
+        RE::BSTSmartPointer<RE::BSScript::Object>& a_object,
+        const char* a_function,
+        RE::BSScript::IFunctionArguments* a_args
+    )
+    {
+        auto* vm =
+            RE::BSScript::Internal::VirtualMachine::GetSingleton();
+
+        RE::BSTSmartPointer<RE::BSScript::IStackCallbackFunctor> callback;
+
+        if (
+            !vm ||
+            !vm->DispatchMethodCall(
+                a_object,
+                a_function,
+                a_args,
+                callback
+            )
+        )
+        {
+            logger::warn(
+                "SkyDoom door buster: could not call {}",
+                a_function
+            );
+        }
+    }
+
+    // True if the base object's model path contains any of a_words
+    // (lower case).
+    bool SkyDoomModelHas(
+        RE::TESForm* a_base,
+        std::initializer_list<std::string_view> a_words
+    )
+    {
+        const auto* model =
+            a_base ?
+                a_base->As<RE::TESModel>() :
+                nullptr;
+
+        const char* path =
+            model ?
+                model->GetModel() :
+                nullptr;
+
+        if (!path)
+        {
+            return false;
+        }
+
+        std::string lower(
+            path
+        );
+
+        for (auto& ch : lower)
+        {
+            if (ch >= 'A' && ch <= 'Z')
+            {
+                ch =
+                    static_cast<char>(
+                        ch - 'A' + 'a'
+                    );
+            }
+        }
+
+        for (const auto word : a_words)
+        {
+            if (lower.find(word) != std::string::npos)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // Activator to open a reference with, like Papyrus SetOpen: none, or
+    // for a "parent activate only" reference one of its activate parents
+    // (the engine refuses anyone else).
+    RE::TESObjectREFR* SkyDoomOpenActivator(
+        RE::TESObjectREFR* a_ref
+    )
+    {
+        auto* extra =
+            a_ref->extraList.GetByType<RE::ExtraActivateRef>();
+
+        if (
+            !extra ||
+            (extra->activateFlags & 1) == 0
+        )
+        {
+            return nullptr;
+        }
+
+        for (auto* data : extra->parents)
+        {
+            if (data)
+            {
+                if (auto parent = data->activateRef.get())
+                {
+                    return parent.get();
+                }
+            }
+        }
+
+        return nullptr;
+    }
+
+    // An upright door big enough to walk through, and not a trap door,
+    // shackle or display case.
+    bool SkyDoomIsPassageDoor(
+        RE::TESObjectREFR* a_door
+    )
+    {
+        const RE::NiPoint3 boundMin =
+            a_door->GetBoundMin();
+
+        const RE::NiPoint3 boundMax =
+            a_door->GetBoundMax();
+
+        const float scale =
+            a_door->GetScale();
+
+        const float height =
+            (boundMax.z - boundMin.z) * scale;
+
+        const float width =
+            std::max(
+                boundMax.x - boundMin.x,
+                boundMax.y - boundMin.y
+            ) *
+            scale;
+
+        const bool upright =
+            std::abs(a_door->GetAngleX()) < 0.5f &&
+            std::abs(a_door->GetAngleY()) < 0.5f;
+
+        return
+            upright &&
+            height >= kSkyDoomPassageDoorHeight &&
+            height >= width * 0.75f &&
+            !SkyDoomModelHas(
+                a_door->GetBaseObject(),
+                { "trap", "shackle" }
+            );
+    }
+
+    // Returns true if the door changed (unlocked or opened).
+    bool BustSkyDoomDoor(
+        RE::TESObjectREFR* a_door
+    )
+    {
+        bool changed =
+            false;
+
+        if (
+            auto* lock = a_door->GetLock();
+            lock &&
+            lock->IsLocked()
+        )
+        {
+            ReportSkyDoomLockCrime(
+                a_door
+            );
+
+            lock->SetLocked(
+                false
+            );
+
+            a_door->AddLockChange();
+
+            changed =
+                true;
+        }
+
+        if (
+            a_door->extraList.HasType<RE::ExtraTeleport>() ||
+            !SkyDoomIsPassageDoor(
+                a_door
+            )
+        )
+        {
+            return changed;
+        }
+
+        bool barRaised =
+            false;
+
+        if (
+            FindSkyDoomBoundScript(
+                a_door,
+                "barredDoor"
+            )
+        )
+        {
+            auto bar =
+                FindSkyDoomBoundScript(
+                    a_door->GetLinkedRef(nullptr),
+                    "doorBar"
+                );
+
+            if (bar)
+            {
+                // Raises the bar if it is down; does nothing otherwise.
+                CallSkyDoomScript(
+                    bar,
+                    "SetBarPosition",
+                    RE::MakeFunctionArguments(
+                        true
+                    )
+                );
+
+                barRaised =
+                    true;
+            }
+        }
+
+        if (
+            a_door->IsActivationBlocked() &&
+            !barRaised
+        )
+        {
+            return changed;
+        }
+
+        const auto openState =
+            RE::BGSOpenCloseForm::GetOpenState(
+                a_door
+            );
+
+        if (
+            openState == RE::BGSOpenCloseForm::OPEN_STATE::kClosed ||
+            openState == RE::BGSOpenCloseForm::OPEN_STATE::kClosing
+        )
+        {
+            a_door->ActivateRef(
+                SkyDoomOpenActivator(
+                    a_door
+                ),
+                0,
+                nullptr,
+                1,
+                false
+            );
+
+            changed =
+                true;
+        }
+
+        return changed;
+    }
+
+    // A gate, portcullis or gate-like secret door, not a trap or bridge.
+    bool SkyDoomIsGateModel(
+        RE::TESForm* a_base
+    )
+    {
+        return
+            SkyDoomModelHas(
+                a_base,
+                { "gate", "portcullis", "door" }
+            ) &&
+            !SkyDoomModelHas(
+                a_base,
+                { "trap", "bridge" }
+            );
+    }
+
+    // Opens a gate and every gate activated together with it. Returns
+    // true if any part was told to open.
+    bool BustSkyDoomGate(
+        RE::TESObjectREFR* a_gate,
+        std::unordered_set<RE::FormID>& a_done
+    )
+    {
+        if (
+            !SkyDoomIsGateModel(
+                a_gate->GetBaseObject()
+            )
+        )
+        {
+            return false;
+        }
+
+        // The gate plus the other children of its lever or trap linker.
+        std::vector<RE::TESObjectREFR*> parts{
+            a_gate
+        };
+
+        if (
+            auto* parents =
+                a_gate->extraList.GetByType<RE::ExtraActivateRef>()
+        )
+        {
+            for (auto* parentData : parents->parents)
+            {
+                auto parent =
+                    parentData ?
+                        parentData->activateRef.get() :
+                        RE::NiPointer<RE::TESObjectREFR>{};
+
+                auto* children =
+                    parent ?
+                        parent->extraList.GetByType<RE::ExtraActivateRefChildren>() :
+                        nullptr;
+
+                if (!children)
+                {
+                    continue;
+                }
+
+                for (auto* childData : children->children)
+                {
+                    if (!childData)
+                    {
+                        continue;
+                    }
+
+                    if (auto child = childData->activateRef.get())
+                    {
+                        parts.push_back(
+                            child.get()
+                        );
+                    }
+                }
+            }
+        }
+
+        bool opened =
+            false;
+
+        for (auto* part : parts)
+        {
+            if (
+                !part ||
+                part->IsDisabled() ||
+                !a_done.insert(part->GetFormID()).second ||
+                !SkyDoomIsGateModel(
+                    part->GetBaseObject()
+                )
+            )
+            {
+                continue;
+            }
+
+            if (
+                auto script = FindSkyDoomBoundScript(
+                    part,
+                    "default2StateActivator"
+                )
+            )
+            {
+                const auto* isOpen =
+                    script->GetProperty(
+                        "isOpen"
+                    );
+
+                if (
+                    isOpen &&
+                    isOpen->IsBool() &&
+                    isOpen->GetBool()
+                )
+                {
+                    continue;
+                }
+
+                CallSkyDoomScript(
+                    script,
+                    "SetOpen",
+                    RE::MakeFunctionArguments(
+                        true
+                    )
+                );
+
+                opened =
+                    true;
+
+                continue;
+            }
+
+            if (
+                auto script = FindSkyDoomBoundScript(
+                    part,
+                    "NorPortcullisSCRIPT"
+                )
+            )
+            {
+                // "upPosition" is this script's closed-at-rest state;
+                // one activation opens it.
+                if (_stricmp(script->currentState.c_str(), "upPosition") != 0)
+                {
+                    continue;
+                }
+
+                auto* activator =
+                    SkyDoomOpenActivator(
+                        part
+                    );
+
+                part->ActivateRef(
+                    activator ?
+                        activator :
+                        RE::PlayerCharacter::GetSingleton(),
+                    0,
+                    nullptr,
+                    1,
+                    false
+                );
+
+                opened =
+                    true;
+            }
+        }
+
+        return opened;
+    }
+
+    void ApplySkyDoomRocketBlastToObjects(
+        const RE::NiPoint3& a_explosion,
+        float a_radius,
+        float a_doomToSkyrimScale
+    )
+    {
+        auto* player =
+            RE::PlayerCharacter::GetSingleton();
+
+        auto* tes =
+            RE::TES::GetSingleton();
+
+        if (
+            !player ||
+            !tes ||
+            a_radius <= 0.0f ||
+            a_doomToSkyrimScale <= 0.0f
+        )
+        {
+            return;
+        }
+
+        const bool bustDoors =
+            g_skyDoomRocketBustsDoors;
+
+        // Collected first: damaging, unlocking or activating inside the
+        // cell's reference loop could change what it is iterating.
+        struct BlastHit
+        {
+            RE::TESObjectREFR* ref;
+            float doomDamage;
+        };
+
+        std::vector<BlastHit> hits;
+
+        tes->ForEachReferenceInRange(
+            player,
+            player->GetPosition().GetDistance(a_explosion) +
+                a_radius +
+                kSkyDoomRocketBlastSearchSlack,
+            [&](RE::TESObjectREFR* a_ref)
+            {
+                if (
+                    !a_ref ||
+                    a_ref == player ||
+                    a_ref->IsDisabled() ||
+                    a_ref->IsMarkedForDeletion() ||
+                    a_ref->As<RE::Actor>()
+                )
+                {
+                    return RE::BSContainer::ForEachResult::kContinue;
+                }
+
+                auto* base =
+                    a_ref->GetBaseObject();
+
+                const bool bustable =
+                    bustDoors &&
+                    base &&
+                    (
+                        base->Is(RE::FormType::Door) ||
+                        base->Is(RE::FormType::Activator)
+                    );
+
+                const auto* destructible =
+                    base ?
+                        base->As<RE::BGSDestructibleObjectForm>() :
+                        nullptr;
+
+                if (
+                    !bustable &&
+                    !(destructible && destructible->data)
+                )
+                {
+                    return RE::BSContainer::ForEachResult::kContinue;
+                }
+
+                auto* node =
+                    a_ref->Get3D();
+
+                if (!node)
+                {
+                    return RE::BSContainer::ForEachResult::kContinue;
+                }
+
+                const auto& bound =
+                    node->worldBound;
+
+                // Distance from the explosion to the object's surface
+                // (its bound sphere); 0 when the explosion is inside it.
+                const float gap =
+                    std::max(
+                        0.0f,
+                        bound.center.GetDistance(a_explosion) -
+                            bound.radius
+                    );
+
+                if (gap > a_radius)
+                {
+                    return RE::BSContainer::ForEachResult::kContinue;
+                }
+
+                // Like DOOM's P_RadiusAttack, walls stop the blast. The
+                // object's own linked collision (a barricade's collision
+                // box) does not count as a wall.
+                RE::TESObjectREFR* blocker =
+                    nullptr;
+
+                if (
+                    gap > 0.0f &&
+                    PickSkyDoomRay(
+                        a_explosion,
+                        bound.center,
+                        blocker
+                    ) &&
+                    blocker != a_ref &&
+                    blocker != a_ref->GetLinkedRef(nullptr)
+                )
+                {
+                    return RE::BSContainer::ForEachResult::kContinue;
+                }
+
+                hits.push_back(
+                    BlastHit{
+                        a_ref,
+                        128.0f - gap / a_doomToSkyrimScale
+                    }
+                );
+
+                return RE::BSContainer::ForEachResult::kContinue;
+            }
+        );
+
+        bool doorBusted =
+            false;
+
+        bool gateBusted =
+            false;
+
+        std::unordered_set<RE::FormID> gatesDone;
+
+        for (const auto& hit : hits)
+        {
+            auto* base =
+                hit.ref->GetBaseObject();
+
+            const auto* destructible =
+                base ?
+                    base->As<RE::BGSDestructibleObjectForm>() :
+                    nullptr;
+
+            if (
+                destructible &&
+                destructible->data &&
+                hit.doomDamage >= 1.0f
+            )
+            {
+                const float damage =
+                    SkyDoomScaledDamage(
+                        static_cast<std::int32_t>(
+                            hit.doomDamage
+                        )
+                    );
+
+                DamageSkyDoomDestructibleObject(
+                    hit.ref,
+                    *destructible,
+                    damage
+                );
+
+                logger::info(
+                    "SkyDoom rocket blast: destructible ref={:08X} damage={}",
+                    hit.ref->GetFormID(),
+                    damage
+                );
+            }
+
+            if (
+                !bustDoors ||
+                !base
+            )
+            {
+                continue;
+            }
+
+            if (
+                base->Is(RE::FormType::Door) &&
+                BustSkyDoomDoor(
+                    hit.ref
+                )
+            )
+            {
+                doorBusted =
+                    true;
+
+                logger::info(
+                    "SkyDoom door buster: door ref={:08X} base={:08X}",
+                    hit.ref->GetFormID(),
+                    base->GetFormID()
+                );
+            }
+            else if (
+                base->Is(RE::FormType::Activator) &&
+                BustSkyDoomGate(
+                    hit.ref,
+                    gatesDone
+                )
+            )
+            {
+                gateBusted =
+                    true;
+
+                logger::info(
+                    "SkyDoom door buster: gate ref={:08X} base={:08X}",
+                    hit.ref->GetFormID(),
+                    base->GetFormID()
+                );
+            }
+        }
+
+        if (
+            gateBusted ||
+            doorBusted
+        )
+        {
+            PushInputEvent(
+                SKYDOOM_INPUT_EVENT_LOCK_STATUS,
+                gateBusted ?
+                    SKYDOOM_LOCK_STATUS_GATE_BUSTED :
+                    SKYDOOM_LOCK_STATUS_DOOR_BUSTED,
+                0
+            );
+        }
+    }
+
     void ApplySkyDoomRocketSplash(
 
         const RE::NiPoint3& explosion,
@@ -29121,6 +29932,13 @@ float screenX =
                 1.0f;
 
         }
+
+        // SKYDOOM_ROCKET_BLAST_OBJECTS
+        ApplySkyDoomRocketBlastToObjects(
+            explosion,
+            128.0f * doomToSkyrimScale,
+            doomToSkyrimScale
+        );
 
 
 

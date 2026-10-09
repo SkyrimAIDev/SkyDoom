@@ -226,6 +226,7 @@ namespace SkyDoom::Settings
 			ReadBool(a_ini, "General", "bKeepStaminaFull", a_values.keepStaminaFull);
 			ReadBool(a_ini, "General", "bFirstPersonInCombat", a_values.firstPersonInCombat);
 			ReadBool(a_ini, "General", "bShotgunBreaksLocks", a_values.shotgunBreaksLocks);
+			ReadBool(a_ini, "General", "bRocketBustsDoors", a_values.rocketBustsDoors);
 
 			auto combatMode = static_cast<std::int32_t>(a_values.combatMode);
 			ReadInt(a_ini, "General", "iCombatMode", 0, 1, combatMode);
