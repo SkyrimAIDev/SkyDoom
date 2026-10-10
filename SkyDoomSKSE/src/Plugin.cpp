@@ -189,6 +189,24 @@ namespace
 	std::atomic_bool g_skyDoomRocketBustsDoors =
 		false;
 
+	// SKYDOOM_AUDIO: MCM Audio page.
+	std::atomic_int g_skyDoomSfxVolume =
+		15;
+
+	std::atomic_int g_skyDoomMusicVolume =
+		8;
+
+	std::atomic_bool g_skyDoomMuteSkyrimMusic =
+		true;
+
+	std::atomic_int g_skyDoomSkyrimEffectsInCombat =
+		100;
+
+	// DOOM music muted with Toggle DOOM music (F10), mirrored from the
+	// events sent to the guest; a new guest starts with music on.
+	std::atomic_bool g_skyDoomMusicToggledOff =
+		false;
+
 	// SKYDOOM_BALANCE: MCM damage multipliers.
 	std::atomic<float> g_skyDoomDamageDealtMult =
 		1.0f;
@@ -968,6 +986,25 @@ namespace
 
 		g_skyDoomRocketBustsDoors =
 			values.rocketBustsDoors;
+
+		g_skyDoomSfxVolume =
+			values.doomSfxVolume;
+
+		g_skyDoomMusicVolume =
+			values.doomMusicVolume;
+
+		g_skyDoomMuteSkyrimMusic =
+			values.muteSkyrimMusicWithDoom;
+
+		g_skyDoomSkyrimEffectsInCombat =
+			values.skyrimEffectsInCombat;
+
+		logger::info(
+			"SkyDoom settings: doomSfxVolume={} doomMusicVolume={} muteSkyrimMusic={} skyrimEffectsInCombat={}%",
+			values.doomSfxVolume,
+			values.doomMusicVolume,
+			values.muteSkyrimMusicWithDoom,
+			values.skyrimEffectsInCombat);
 
 		g_skyDoomDamageDealtMult =
 			values.damageDealtMult;
@@ -7735,6 +7772,12 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 									bound.type,
 									bound.code,
 									1);
+
+								// SKYDOOM_AUDIO: follow F10 for Skyrim's music.
+								if (bound.type == SKYDOOM_INPUT_EVENT_MUSIC_TOGGLE) {
+									g_skyDoomMusicToggledOff =
+										!g_skyDoomMusicToggledOff;
+								}
 							}
 
 							if (bound.hold) {
@@ -12238,6 +12281,187 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
                 "SkyDoom arcade: book not found in SkyDoom.esp; the minigame cannot be started"
             );
         }
+    }
+
+    // ========================================================
+    // SKYDOOM AUDIO
+    // ========================================================
+
+    /*
+        SKYDOOM_AUDIO (MCM Audio page)
+
+        - The combat guest's DOOM volumes follow the MCM; they are sent
+          again whenever they change or a new guest process starts.
+        - In DOOM combat, Skyrim's music is muted while DOOM music plays,
+          and Skyrim's effects are scaled to a share of the player's own
+          Effects volume. The player's volumes come back as soon as DOOM
+          combat ends, which includes pausing and opening menus (so the
+          audio settings menu always shows and saves the player's own
+          values, and the minigame, which runs paused, never overlaps).
+        Main thread (UpdateSharedState).
+    */
+    constexpr RE::FormID
+        kSkyrimEffectsCategoryId =
+            0x000172A1;  // AudioCategorySFX, the Effects slider
+
+    // Scales one of Skyrim's sound categories, remembering the player's
+    // own volume until it is restored.
+    struct SkyDoomCategoryOverride
+    {
+        RE::FormID id;
+
+        // The player's volume while overridden, or below 0.
+        float saved =
+            -1.0f;
+
+        float applied =
+            1.0f;
+
+        void Set(
+            float a_factor
+        )
+        {
+            auto* category =
+                RE::TESForm::LookupByID<RE::BGSSoundCategory>(
+                    id
+                );
+
+            if (!category)
+            {
+                return;
+            }
+
+            if (a_factor >= 1.0f)
+            {
+                if (saved >= 0.0f)
+                {
+                    category->SetCategoryVolume(
+                        saved
+                    );
+                }
+
+                saved =
+                    -1.0f;
+
+                applied =
+                    1.0f;
+
+                return;
+            }
+
+            if (saved < 0.0f)
+            {
+                saved =
+                    category->GetCategoryVolume();
+
+                applied =
+                    1.0f;
+            }
+
+            if (applied != a_factor)
+            {
+                category->SetCategoryVolume(
+                    saved * a_factor
+                );
+
+                applied =
+                    a_factor;
+            }
+        }
+    };
+
+    SkyDoomCategoryOverride g_skyrimMusicOverride{
+        kSkyrimMusicCategoryId
+    };
+
+    SkyDoomCategoryOverride g_skyrimEffectsOverride{
+        kSkyrimEffectsCategoryId
+    };
+
+    void UpdateSkyDoomAudio()
+    {
+        // DOOM volumes for the combat guest.
+        static std::uint32_t sentPid =
+            0;
+
+        static int sentSfx =
+            -1;
+
+        static int sentMusic =
+            -1;
+
+        if (
+            g_state &&
+            g_state->doom.running &&
+            g_state->doom.pid != 0
+        )
+        {
+            const auto pid =
+                g_state->doom.pid;
+
+            const int sfx =
+                g_skyDoomSfxVolume;
+
+            const int music =
+                g_skyDoomMusicVolume;
+
+            if (pid != sentPid)
+            {
+                g_skyDoomMusicToggledOff =
+                    false;
+            }
+
+            if (
+                pid != sentPid ||
+                sfx != sentSfx ||
+                music != sentMusic
+            )
+            {
+                PushInputEvent(
+                    SKYDOOM_INPUT_EVENT_AUDIO_VOLUME,
+                    SKYDOOM_AUDIO_SFX_VOLUME,
+                    sfx
+                );
+
+                PushInputEvent(
+                    SKYDOOM_INPUT_EVENT_AUDIO_VOLUME,
+                    SKYDOOM_AUDIO_MUSIC_VOLUME,
+                    music
+                );
+
+                sentPid =
+                    pid;
+
+                sentSfx =
+                    sfx;
+
+                sentMusic =
+                    music;
+            }
+        }
+
+        // Skyrim's own sound while in DOOM combat.
+        const bool combat =
+            g_skyDoomCombat &&
+            !SkyDoomArcadeActive();
+
+        const bool doomMusicPlaying =
+            combat &&
+            g_state &&
+            (g_state->skyrim.mode_flags & SKYDOOM_MODE_MUSIC) != 0 &&
+            !g_skyDoomMusicToggledOff;
+
+        g_skyrimMusicOverride.Set(
+            doomMusicPlaying && g_skyDoomMuteSkyrimMusic ?
+                0.0f :
+                1.0f
+        );
+
+        g_skyrimEffectsOverride.Set(
+            combat ?
+                static_cast<float>(g_skyDoomSkyrimEffectsInCombat.load()) / 100.0f :
+                1.0f
+        );
     }
 
 	// ========================================================
@@ -44798,6 +45022,9 @@ SKSE::log::info(
 		// SKYDOOM_ARCADE
 		UpdateSkyDoomArcade();
 		PlaceSkyDoomArcadeBook();
+
+		// SKYDOOM_AUDIO
+		UpdateSkyDoomAudio();
 
 		if (!g_state) {
 			return;

@@ -243,6 +243,11 @@ namespace SkyDoom::Settings
 			ReadInt(a_ini, "Pickups", "iEnemyDropChance", 0, 100, a_values.enemyDropChance);
 			ReadBool(a_ini, "Pickups", "bWorldStashes", a_values.worldStashes);
 
+			ReadInt(a_ini, "Audio", "iDoomSfxVolume", 0, 15, a_values.doomSfxVolume);
+			ReadInt(a_ini, "Audio", "iDoomMusicVolume", 0, 15, a_values.doomMusicVolume);
+			ReadBool(a_ini, "Audio", "bMuteSkyrimMusic", a_values.muteSkyrimMusicWithDoom);
+			ReadInt(a_ini, "Audio", "iSkyrimEffectsInCombat", 0, 100, a_values.skyrimEffectsInCombat);
+
 			ReadInt(a_ini, "Minigame", "iArcadeSkill", 0, 4, a_values.arcadeSkill);
 			ReadFloat(a_ini, "Minigame", "fArcadeMouseSensitivity", 0.25f, 4.0f, a_values.arcadeMouseSensitivity);
 		}

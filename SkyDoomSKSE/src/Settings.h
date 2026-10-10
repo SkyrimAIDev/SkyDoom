@@ -102,6 +102,13 @@ namespace SkyDoom::Settings
 		// DOOM items placed in dungeons the first time they are entered.
 		bool worldStashes = true;
 
+		// [Audio] SkyDoom combat: the hidden DOOM's volumes (DOOM's 0-15
+		// menu scale), and Skyrim's own sound while in DOOM combat.
+		std::int32_t doomSfxVolume = 15;
+		std::int32_t doomMusicVolume = 8;
+		bool muteSkyrimMusicWithDoom = true;
+		std::int32_t skyrimEffectsInCombat = 100;  // percent of the Effects slider
+
 		// [Minigame] DOOM skill, 0 = I'm too young to die ... 4 = Nightmare!
 		std::int32_t arcadeSkill = 2;  // Hurt me plenty
 

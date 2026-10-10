@@ -45,7 +45,6 @@
         {"text": "SkyDoom", "type": "header"},
         {"id": "bEnabled:General", "text": "Enable SkyDoom", "type": "toggle", "help": "Turn the DOOM mini game on or off. Off means plain Skyrim: no DOOM HUD, controls, health, music or pickups. The Toggle DOOM mode key also flips this for the current session.", "valueOptions": {"sourceType": "ModSettingBool"}},
         {"id": "iCombatMode:General", "text": "DOOM combat", "type": "enum", "help": "When a weapon is drawn: draw your weapon to fight as DOOM, sheathe it to return to Skyrim. Always: DOOM combat whenever SkyDoom is enabled.", "valueOptions": {"options": ["When a weapon is drawn", "Always"], "sourceType": "ModSettingInt"}},
-        {"id": "iMusicMode:General", "text": "DOOM music", "type": "enum", "help": "In DOOM combat: DOOM music plays while fighting as DOOM and Skyrim music the rest of the time. Always: whenever SkyDoom is enabled. Off: never. Toggle DOOM music (F10) can still mute it.", "valueOptions": {"options": ["In DOOM combat", "Always", "Off"], "sourceType": "ModSettingInt"}},
         {"id": "bKeepStaminaFull:General", "text": "Keep stamina full in DOOM combat", "type": "toggle", "help": "The DOOM HUD has no stamina meter, so SkyDoom keeps your stamina full while in DOOM combat and you can always sprint. Turn off to use Skyrim's stamina rules.", "valueOptions": {"sourceType": "ModSettingBool"}},
         {"id": "bFirstPersonInCombat:General", "text": "First person in DOOM combat", "type": "toggle", "help": "Drawing a weapon in third person switches to first person, since the DOOM HUD and weapon are a first-person view. Sheathing switches back if SkyDoom made the switch. Horseback and other special cameras are left alone.", "valueOptions": {"sourceType": "ModSettingBool"}},
         {"id": "bShotgunBreaksLocks:General", "text": "Shotgun breaks locks", "type": "toggle", "help": "A point-blank DOOM shotgun blast damages the lock of the door or chest you are facing (like DOOM's autoaim, height doesn't matter), and enough blasts break it: Novice 1, Apprentice 2, Adept 3, Expert 4, Master 5. Locks that need a key can't be broken. Blasting an owned lock while seen is a crime, like picking it.", "valueOptions": {"sourceType": "ModSettingBool"}},
@@ -56,6 +55,19 @@
 
         { "text": "DOOM.WAD", "type": "header" },
         { "id": "sWadPath:General", "text": "DOOM.WAD location", "type": "input", "help": "Full path to your own DOOM.WAD, for non-Steam installs. Leave empty to find it in your Steam libraries automatically. Takes effect the next time Skyrim starts.", "valueOptions": { "sourceType": "ModSettingString" } }
+      ]
+    },
+    {
+      "pageDisplayName": "Audio",
+      "cursorFillMode": "topToBottom",
+      "content": [
+        {"text": "DOOM sound in SkyDoom combat", "type": "header"},
+        {"id": "iMusicMode:General", "text": "DOOM music", "type": "enum", "help": "In DOOM combat: DOOM music plays while fighting as DOOM and Skyrim music the rest of the time. Always: whenever SkyDoom is enabled. Off: never. Toggle DOOM music (F10) can still mute it.", "valueOptions": {"options": ["In DOOM combat", "Always", "Off"], "sourceType": "ModSettingInt"}},
+        {"id": "iDoomSfxVolume:Audio", "text": "DOOM sound effects volume", "type": "slider", "help": "Volume of DOOM weapon, pickup and pain sounds in SkyDoom combat, on DOOM's 0-15 scale. The minigame sets its own volume in DOOM's Options menu. Default: 15.", "valueOptions": {"min": 0, "max": 15, "step": 1, "formatString": "{0}", "sourceType": "ModSettingInt"}},
+        {"id": "iDoomMusicVolume:Audio", "text": "DOOM music volume", "type": "slider", "help": "Volume of DOOM music in SkyDoom combat, on DOOM's 0-15 scale. Default: 8.", "valueOptions": {"min": 0, "max": 15, "step": 1, "formatString": "{0}", "sourceType": "ModSettingInt"}},
+        {"text": "Skyrim sound in DOOM combat", "type": "header"},
+        {"id": "bMuteSkyrimMusic:Audio", "text": "Mute Skyrim music under DOOM music", "type": "toggle", "help": "While you fight as DOOM and DOOM music is playing, Skyrim's music is muted so the two do not clash. Your Skyrim music volume comes back as soon as DOOM combat ends.", "valueOptions": {"sourceType": "ModSettingBool"}},
+        {"id": "iSkyrimEffectsInCombat:Audio", "text": "Skyrim effects volume", "type": "slider", "help": "Skyrim's sound effects while you fight as DOOM, as a share of your Effects volume setting. Lower it if Skyrim drowns out DOOM's weapons. Your Effects volume comes back as soon as DOOM combat ends. Default: 100%.", "valueOptions": {"min": 0, "max": 100, "step": 5, "formatString": "{0}%", "sourceType": "ModSettingInt"}}
       ]
     },
     {
