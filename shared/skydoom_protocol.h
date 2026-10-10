@@ -199,6 +199,14 @@
 */
 #define SKYDOOM_INPUT_EVENT_ARCADE_SETUP 11u
 
+/*
+    DOOM's F-key shortcuts (F1 help, F2 save, F3 load ... F10 quit),
+    passed through from the keyboard: code = DOOM key code (KEY_F1 -
+    KEY_F12, i.e. 0x80 + the DirectInput scan code), value 1 pressed /
+    0 released. The guest accepts nothing else.
+*/
+#define SKYDOOM_INPUT_EVENT_ARCADE_KEY 13u
+
 #define SKYDOOM_ARCADE_INV_HEALTH       1u
 #define SKYDOOM_ARCADE_INV_ARMOR        2u
 #define SKYDOOM_ARCADE_INV_ARMOR_TYPE   3u

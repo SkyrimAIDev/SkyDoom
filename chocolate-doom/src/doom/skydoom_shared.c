@@ -21,6 +21,7 @@
 #include "st_stuff.h"
 #include "m_argv.h"
 #include "m_config.h"
+#include "doomkeys.h"
 #include "m_controls.h"
 #include "m_menu.h"
 #include "r_main.h"
@@ -691,6 +692,17 @@ static void SkyDoom_ArcadeApplyInputEvent(const SkyDoomInputEvent *event)
 
         case SKYDOOM_INPUT_EVENT_RELEASE_ALL:
             SkyDoom_ArcadeReleaseAll();
+            break;
+
+        case SKYDOOM_INPUT_EVENT_ARCADE_KEY:
+            /* Only DOOM's F-key shortcuts, and not during the level-end question. */
+            if (!skydoom_arcade_prompt &&
+                ((event->code >= KEY_F1 && event->code <= KEY_F10) ||
+                 event->code == KEY_F11 ||
+                 event->code == KEY_F12))
+            {
+                SkyDoom_ArcadePostKey(event->code, event->value != 0);
+            }
             break;
 
         case SKYDOOM_INPUT_EVENT_ARCADE_SETUP:
