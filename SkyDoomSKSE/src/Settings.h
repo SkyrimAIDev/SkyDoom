@@ -95,6 +95,11 @@ namespace SkyDoom::Settings
 		float damageDealtMult = 1.0f;  // 0.1 - 10
 		float damageTakenMult = 1.0f;  // 0.1 - 5
 
+		// DOOM weapon hits train Skyrim skills (guns Archery, fist and
+		// chainsaw One-Handed), at this rate.
+		bool doomWeaponsTrainSkills = true;
+		float doomSkillXpRate = 1.0f;  // 0.25 - 4
+
 		// [Pickups] DOOM items dropped by killed enemies.
 		bool enemyDrops = true;
 		std::int32_t enemyDropChance = 100;  // percent

@@ -189,6 +189,13 @@ namespace
 	std::atomic_bool g_skyDoomRocketBustsDoors =
 		false;
 
+	// SKYDOOM_SKILLS: MCM Balance page.
+	std::atomic_bool g_skyDoomTrainSkills =
+		true;
+
+	std::atomic<float> g_skyDoomSkillXpRate =
+		1.0f;
+
 	// SKYDOOM_AUDIO: MCM Audio page.
 	std::atomic_int g_skyDoomSfxVolume =
 		15;
@@ -986,6 +993,17 @@ namespace
 
 		g_skyDoomRocketBustsDoors =
 			values.rocketBustsDoors;
+
+		g_skyDoomTrainSkills =
+			values.doomWeaponsTrainSkills;
+
+		g_skyDoomSkillXpRate =
+			values.doomSkillXpRate;
+
+		logger::info(
+			"SkyDoom settings: doomWeaponsTrainSkills={} doomSkillXpRate={}",
+			values.doomWeaponsTrainSkills,
+			values.doomSkillXpRate);
 
 		g_skyDoomSfxVolume =
 			values.doomSfxVolume;
@@ -10813,6 +10831,30 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
                     RefreshSkyDoomArcadeAction(
                         action
                     );
+
+                    continue;
+                }
+
+                // DOOM's F-key shortcuts (F1 help, F2 save, F3 load ...),
+                // as its Read This! screens list them. Toggle DOOM mode's
+                // key never gets here (emergency exit, above).
+                if (button->GetDevice() == RE::INPUT_DEVICE::kKeyboard)
+                {
+                    const auto id =
+                        button->GetIDCode();
+
+                    if (
+                        (id >= 0x3B && id <= 0x44) ||  // F1-F10
+                        id == 0x57 ||                  // F11
+                        id == 0x58                     // F12
+                    )
+                    {
+                        PushSkyDoomArcadeInput(
+                            SKYDOOM_INPUT_EVENT_ARCADE_KEY,
+                            static_cast<std::uint16_t>(0x80 + id),
+                            button->IsDown() ? 1 : 0
+                        );
+                    }
                 }
 
                 continue;
@@ -13399,6 +13441,109 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 
 
     /*
+        SKYDOOM_SKILLS
+
+        Which Skyrim weapon a DOOM hit counts as: the fist and chainsaw
+        are melee (an iron dagger, One-Handed), every gun a hunting bow
+        (Archery). Decided by the weapon DOOM has raised, which the guest
+        publishes every tic.
+    */
+    constexpr RE::FormID
+        kSkyDoomMeleeStandInId =
+            0x0001397E;  // IronDagger
+
+    constexpr RE::FormID
+        kSkyDoomRangedStandInId =
+            0x00013985;  // HuntingBow
+
+    bool SkyDoomMeleeWeaponReady()
+    {
+        // DOOM's weapontype_t: wp_fist = 0, wp_chainsaw = 7.
+        return
+            g_state &&
+            (
+                g_state->doom.weapon == 0 ||
+                g_state->doom.weapon == 7
+            );
+    }
+
+    RE::FormID SkyDoomStandInWeaponId()
+    {
+        return
+            SkyDoomMeleeWeaponReady() ?
+                kSkyDoomMeleeStandInId :
+                kSkyDoomRangedStandInId;
+    }
+
+    /*
+        DOOM weapon hits train Skyrim skills (MCM Balance page): guns
+        Archery, fist and chainsaw One-Handed. DOOM fires far faster than
+        Skyrim weapons (seven pellets a shotgun blast, ten chaingun bullets
+        a second), so a skill gains experience at most once every
+        kSkyDoomSkillCooldownMs, worth one ordinary Skyrim hit: Skyrim's
+        weapon skill use per hit is the weapon's base damage, and DOOM's
+        damage clamped to 5-20 is in the same range. Main thread.
+    */
+    constexpr std::uint64_t
+        kSkyDoomSkillCooldownMs =
+            750;
+
+    void TrainSkyDoomSkill(
+        RE::PlayerCharacter* a_player,
+        RE::Actor* a_target,
+        float a_damage
+    )
+    {
+        if (
+            !g_skyDoomTrainSkills ||
+            !a_player ||
+            !a_target ||
+            a_target == a_player ||
+            a_target->IsDead()
+        )
+        {
+            return;
+        }
+
+        const bool melee =
+            SkyDoomMeleeWeaponReady();
+
+        static std::uint64_t lastOneHandedMs =
+            0;
+
+        static std::uint64_t lastArcheryMs =
+            0;
+
+        auto& last =
+            melee ?
+                lastOneHandedMs :
+                lastArcheryMs;
+
+        const std::uint64_t now =
+            GetTickCount64();
+
+        if (now - last < kSkyDoomSkillCooldownMs)
+        {
+            return;
+        }
+
+        last =
+            now;
+
+        a_player->AddSkillExperience(
+            melee ?
+                RE::ActorValue::kOneHanded :
+                RE::ActorValue::kArchery,
+            std::clamp(
+                a_damage,
+                5.0f,
+                20.0f
+            ) *
+            g_skyDoomSkillXpRate.load()
+        );
+    }
+
+    /*
         SKYDOOM_HIT_EVENT
 
         Actor::DoDamage, the fallback when Skyrim's native hit processor
@@ -13429,7 +13574,7 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         const RE::TESHitEvent event(
             a_target,
             a_player,
-            0x0001397E,
+            SkyDoomStandInWeaponId(),
             0,
             RE::TESHitEvent::Flag::kNone
         );
@@ -13470,6 +13615,15 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
             return false;
 
         }
+
+        // SKYDOOM_SKILLS: every DOOM hit comes through here, whether the
+        // native hit or the DoDamage fallback then applies it.
+        TrainSkyDoomSkill(
+            player,
+            target,
+            damage
+        );
+
 
 
 
@@ -13585,9 +13739,10 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 
         /*
 
-            Use a base-game dagger internally as an impact-data
+            Use a base-game weapon internally as an impact-data
 
-            stand-in.
+            stand-in (SKYDOOM_SKILLS: an iron dagger for DOOM's fist and
+            chainsaw, a hunting bow for its guns).
 
 
 
@@ -13613,7 +13768,7 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 
                 >(
 
-                    0x0001397E
+                    SkyDoomStandInWeaponId()  // SKYDOOM_SKILLS: bow for guns, dagger for melee
 
                 );
 

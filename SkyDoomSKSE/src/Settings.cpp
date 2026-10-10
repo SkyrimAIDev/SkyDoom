@@ -238,6 +238,8 @@ namespace SkyDoom::Settings
 
 			ReadFloat(a_ini, "Balance", "fDamageDealtMult", 0.1f, 10.0f, a_values.damageDealtMult);
 			ReadFloat(a_ini, "Balance", "fDamageTakenMult", 0.1f, 5.0f, a_values.damageTakenMult);
+			ReadBool(a_ini, "Balance", "bDoomWeaponsTrainSkills", a_values.doomWeaponsTrainSkills);
+			ReadFloat(a_ini, "Balance", "fDoomSkillXpRate", 0.25f, 4.0f, a_values.doomSkillXpRate);
 
 			ReadBool(a_ini, "Pickups", "bEnemyDrops", a_values.enemyDrops);
 			ReadInt(a_ini, "Pickups", "iEnemyDropChance", 0, 100, a_values.enemyDropChance);
