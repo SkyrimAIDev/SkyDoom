@@ -10,7 +10,8 @@ tested), followed by the changes since the previous build.
 
 ## v0.1.22-beta - 2026-10-10
 
-Status: In testing.
+Status: Tested on Skyrim 1.6.1170 (NGVO). In Bleak Falls Barrow, plasma and the
+BFG broke webs, dropped hanging oil lamps and lit oil and gas.
 
 - New: the plasma rifle and the BFG 9000 act on the world like rockets.
   A plasma bolt breaks spider webs, drops hanging oil lamps and lights oil
