@@ -7825,6 +7825,12 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 	// same call site is used by Community Shaders, OpenAnimationReplacer,
 	// TrueHotkeys and others). The game rebuilds the queue every frame, so
 	// relinking `next` pointers here does not persist.
+	// SKYDOOM_ARCADE (defined with the minigame below).
+	bool SkyDoomArcadeActive();
+
+	void HandleSkyDoomArcadeInput(
+		RE::InputEvent* a_events);
+
 	struct SkyDoomInputDispatchHook
 	{
 		static void thunk(
@@ -7833,6 +7839,22 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 		{
 			// Runs every frame on the main thread.
 			UpdateSkyDoomModeState();
+
+			// SKYDOOM_ARCADE: the minigame takes all input while it runs.
+			if (SkyDoomArcadeActive()) {
+				HandleSkyDoomArcadeInput(
+					a_events ?
+						*a_events :
+						nullptr);
+
+				RE::InputEvent* const none[] = {
+					nullptr
+				};
+
+				return func(
+					a_dispatcher,
+					none);
+			}
 
 			if (
 				!a_events ||
@@ -10034,6 +10056,1668 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 
 
 
+    // ========================================================
+    // SKYDOOM ARCADE: THE DOOM MINIGAME
+    // ========================================================
+
+    /*
+        SKYDOOM_ARCADE
+
+        Reading the book "Knee-Deep in the Dead" (SkyDoom.esp) and closing
+        it starts the DOOM minigame: a second Chocolate Doom process
+        (-skydoomarcade, its own per-session mapping, in the combat
+        guest's job object) playing E1M1 with monsters and its own
+        inventory.
+
+        While it runs:
+        - SkyDoomArcadeMenu (no movie) pauses Skyrim and keeps the pause
+          menu shut;
+        - all input goes to the minigame instead of Skyrim: the SkyDoom
+          Fire and weapon bindings, Skyrim's gameplay bindings for
+          Forward, Back, Strafe, Activate, Sprint/Run, Attack and Quick
+          Map, the arrow keys, mouse and right-stick turning and
+          left-stick movement;
+        - the Present hook draws the DOOM frame full screen at 4:3 over
+          black.
+
+        It ends when DOOM reports a finished level or episode, when its
+        process exits or stops responding, or when the Toggle DOOM mode
+        key or button is held for kSkyDoomArcadeAbortHoldSec (emergency
+        exit). Main thread, except the Present hook's heartbeat and frame
+        copy, which hold g_arcadeMutex.
+    */
+    constexpr std::string_view
+        kSkyDoomArcadeMenuName =
+            "SkyDoomArcadeMenu";
+
+    constexpr std::string_view
+        kSkyDoomPluginFile =
+            "SkyDoom.esp";
+
+    constexpr RE::FormID
+        kSkyDoomArcadeBookLocalId =
+            0x801;
+
+    // Time allowed for DOOM to show its first frame.
+    constexpr std::uint64_t
+        kSkyDoomArcadeStartTimeoutMs =
+            20000;
+
+    // A DOOM heartbeat older than this ends the session.
+    constexpr std::uint64_t
+        kSkyDoomArcadeHangTimeoutMs =
+            10000;
+
+    constexpr float
+        kSkyDoomArcadeAbortHoldSec =
+            3.0f;
+
+    // DOOM mouse-turn units per raw mouse count, and per second at full
+    // right-stick deflection (about 150 degrees a second).
+    constexpr float
+        kSkyDoomArcadeMouseTurnScale =
+            2.0f;
+
+    constexpr float
+        kSkyDoomArcadeStickTurnPerSec =
+            3500.0f;
+
+    constexpr float
+        kSkyDoomArcadeStickDeadzone =
+            0.35f;
+
+    constexpr float
+        kSkyDoomArcadeTurnDeadzone =
+            0.15f;
+
+    enum class SkyDoomArcadePhase
+    {
+        kIdle,
+        kStarting,  // process launched, no frame yet
+        kPlaying
+    };
+
+    std::atomic<SkyDoomArcadePhase> g_arcadePhase{
+        SkyDoomArcadePhase::kIdle
+    };
+
+    // Guards g_arcade's mapping and frame against the Present hook.
+    std::mutex g_arcadeMutex;
+
+    struct SkyDoomArcadeSession
+    {
+        HANDLE mapping =
+            nullptr;
+
+        SkyDoomSharedState* state =
+            nullptr;
+
+        HANDLE process =
+            nullptr;
+
+        std::uint64_t startedMs =
+            0;
+
+        std::uint32_t inputSequence =
+            0;
+
+        // Input, main thread. An action is down while a key or the left
+        // stick holds it.
+        std::array<bool, SKYDOOM_ARCADE_ACTION_COUNT> keyHeld{};
+        std::array<bool, SKYDOOM_ARCADE_ACTION_COUNT> stickHeld{};
+        std::array<bool, SKYDOOM_ARCADE_ACTION_COUNT> sent{};
+
+        float rightStickX =
+            0.0f;
+
+        float turnRemainder =
+            0.0f;
+
+        std::chrono::steady_clock::time_point lastInput{};
+
+        // Frame, under g_arcadeMutex.
+        std::vector<std::uint8_t> pixels =
+            std::vector<std::uint8_t>(
+                SKYDOOM_OVERLAY_RGBA_BYTES
+            );
+
+        std::uint64_t lastFrame =
+            0;
+
+        bool haveFrame =
+            false;
+
+        bool frameUploaded =
+            false;
+    };
+
+    SkyDoomArcadeSession g_arcade;
+
+    // The book open in the Book Menu is the arcade book.
+    std::atomic_bool g_arcadeBookOpen{
+        false
+    };
+
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> g_arcadeTexture;
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> g_arcadeSRV;
+    Microsoft::WRL::ComPtr<ID3D11Buffer> g_arcadeVertexBuffer;
+
+    bool SkyDoomArcadeActive()
+    {
+        return
+            g_arcadePhase.load() !=
+            SkyDoomArcadePhase::kIdle;
+    }
+
+    RE::TESObjectBOOK* GetSkyDoomArcadeBook()
+    {
+        auto* data =
+            RE::TESDataHandler::GetSingleton();
+
+        return
+            data ?
+                data->LookupForm<RE::TESObjectBOOK>(
+                    kSkyDoomArcadeBookLocalId,
+                    kSkyDoomPluginFile
+                ) :
+                nullptr;
+    }
+
+    // The arcade's input ring; same layout and rules as PushInputEvent.
+    void PushSkyDoomArcadeInput(
+        std::uint16_t a_type,
+        std::uint16_t a_code,
+        std::int32_t a_value
+    )
+    {
+        auto* state =
+            g_arcade.state;
+
+        if (!state)
+        {
+            return;
+        }
+
+        auto& ring =
+            state->input;
+
+        const std::uint32_t head =
+            ring.head;
+
+        const std::uint32_t tail =
+            ring.tail;
+
+        if (head - tail >= SKYDOOM_INPUT_RING_ENTRIES)
+        {
+            ring.dropped++;
+
+            return;
+        }
+
+        auto& event =
+            ring.events[head & SKYDOOM_INPUT_RING_MASK];
+
+        event.type =
+            a_type;
+
+        event.code =
+            a_code;
+
+        event.value =
+            a_value;
+
+        event.sequence =
+            ++g_arcade.inputSequence;
+
+        event.reserved =
+            0;
+
+        MemoryBarrier();
+
+        ring.head =
+            head + 1u;
+    }
+
+    // Sends an action's state when a key or the stick changed it.
+    void RefreshSkyDoomArcadeAction(
+        std::uint32_t a_action
+    )
+    {
+        if (
+            a_action == 0 ||
+            a_action >= SKYDOOM_ARCADE_ACTION_COUNT
+        )
+        {
+            return;
+        }
+
+        const bool down =
+            g_arcade.keyHeld[a_action] ||
+            g_arcade.stickHeld[a_action];
+
+        if (g_arcade.sent[a_action] == down)
+        {
+            return;
+        }
+
+        g_arcade.sent[a_action] =
+            down;
+
+        PushSkyDoomArcadeInput(
+            SKYDOOM_INPUT_EVENT_ARCADE_ACTION,
+            static_cast<std::uint16_t>(
+                a_action
+            ),
+            down ? 1 : 0
+        );
+    }
+
+    // Minigame action for a button, or 0: the SkyDoom bindings first,
+    // then Skyrim's gameplay bindings (whatever menu context is current),
+    // then fixed keys.
+    std::uint32_t SkyDoomArcadeActionFor(
+        const RE::ButtonEvent& a_button,
+        const std::array<SkyDoom::Settings::Binding, SkyDoom::Settings::kActionCount>& a_bindings
+    )
+    {
+        using SkyDoom::Settings::Action;
+
+        const auto code =
+            SkyDoomKeyCode(
+                a_button
+            );
+
+        if (code >= 0)
+        {
+            for (std::size_t i = 0; i < a_bindings.size(); ++i)
+            {
+                if (
+                    a_bindings[i].keyboard != code &&
+                    a_bindings[i].gamepad != code
+                )
+                {
+                    continue;
+                }
+
+                switch (static_cast<Action>(i))
+                {
+                case Action::Fire:
+                    return SKYDOOM_ARCADE_FIRE;
+                case Action::Melee:
+                case Action::Pistol:
+                case Action::Shotgun:
+                case Action::Chaingun:
+                case Action::Rocket:
+                case Action::Plasma:
+                case Action::Bfg:
+                    return
+                        SKYDOOM_ARCADE_WEAPON_1 +
+                        static_cast<std::uint32_t>(
+                            i -
+                            static_cast<std::size_t>(Action::Melee)
+                        );
+                case Action::NextWeapon:
+                    return SKYDOOM_ARCADE_NEXT_WEAPON;
+                case Action::PrevWeapon:
+                    return SKYDOOM_ARCADE_PREV_WEAPON;
+                default:
+                    break;
+                }
+            }
+        }
+
+        const auto device =
+            a_button.GetDevice();
+
+        const auto id =
+            a_button.GetIDCode();
+
+        auto* controlMap =
+            RE::ControlMap::GetSingleton();
+
+        auto* userEvents =
+            RE::UserEvents::GetSingleton();
+
+        if (
+            controlMap &&
+            userEvents
+        )
+        {
+            const std::pair<const RE::BSFixedString*, std::uint32_t> gameplay[] = {
+                { &userEvents->forward, SKYDOOM_ARCADE_FORWARD },
+                { &userEvents->back, SKYDOOM_ARCADE_BACK },
+                { &userEvents->strafeLeft, SKYDOOM_ARCADE_STRAFE_LEFT },
+                { &userEvents->strafeRight, SKYDOOM_ARCADE_STRAFE_RIGHT },
+                { &userEvents->activate, SKYDOOM_ARCADE_USE },
+                { &userEvents->sprint, SKYDOOM_ARCADE_RUN },
+                { &userEvents->run, SKYDOOM_ARCADE_RUN },
+                { &userEvents->rightAttack, SKYDOOM_ARCADE_FIRE },
+                { &userEvents->leftAttack, SKYDOOM_ARCADE_FIRE },
+                { &userEvents->quickMap, SKYDOOM_ARCADE_AUTOMAP }
+            };
+
+            for (const auto& [eventName, action] : gameplay)
+            {
+                const auto mapped =
+                    controlMap->GetMappedKey(
+                        eventName->c_str(),
+                        device,
+                        RE::ControlMap::InputContextID::kGameplay
+                    );
+
+                if (
+                    mapped != RE::ControlMap::kInvalid &&
+                    mapped == id
+                )
+                {
+                    return action;
+                }
+            }
+        }
+
+        if (device == RE::INPUT_DEVICE::kKeyboard)
+        {
+            switch (id)
+            {
+            case 0xCB:  // Left arrow
+                return SKYDOOM_ARCADE_TURN_LEFT;
+            case 0xCD:  // Right arrow
+                return SKYDOOM_ARCADE_TURN_RIGHT;
+            case 0x0F:  // Tab
+                return SKYDOOM_ARCADE_AUTOMAP;
+            default:
+                break;
+            }
+        }
+
+        // Gamepad Back.
+        if (code == 271)
+        {
+            return SKYDOOM_ARCADE_AUTOMAP;
+        }
+
+        return 0;
+    }
+
+    void StopSkyDoomArcade(
+        std::string_view a_reason,
+        const char* a_message
+    );
+
+    // Input dispatch hook, every frame while the minigame runs.
+    void HandleSkyDoomArcadeInput(
+        RE::InputEvent* a_events
+    )
+    {
+        if (!SkyDoomArcadeActive())
+        {
+            return;
+        }
+
+        std::array<SkyDoom::Settings::Binding, SkyDoom::Settings::kActionCount> bindings;
+
+        {
+            std::scoped_lock lock(
+                g_settingsMutex
+            );
+
+            bindings =
+                g_settings.bindings;
+        }
+
+        const auto& toggle =
+            bindings[static_cast<std::size_t>(SkyDoom::Settings::Action::ToggleDoom)];
+
+        const auto now =
+            std::chrono::steady_clock::now();
+
+        float dt =
+            g_arcade.lastInput.time_since_epoch().count() == 0 ?
+                0.0f :
+                std::chrono::duration<float>(
+                    now - g_arcade.lastInput
+                ).count();
+
+        dt =
+            std::clamp(
+                dt,
+                0.0f,
+                0.1f
+            );
+
+        g_arcade.lastInput =
+            now;
+
+        float turn =
+            0.0f;
+
+        bool abort =
+            false;
+
+        for (
+            auto* event = a_events;
+            event;
+            event = event->next
+        )
+        {
+            if (const auto* button = event->AsButtonEvent())
+            {
+                const auto code =
+                    SkyDoomKeyCode(
+                        *button
+                    );
+
+                // Emergency exit: hold Toggle DOOM mode.
+                if (
+                    code >= 0 &&
+                    (code == toggle.keyboard || code == toggle.gamepad)
+                )
+                {
+                    if (
+                        button->IsPressed() &&
+                        button->HeldDuration() >= kSkyDoomArcadeAbortHoldSec
+                    )
+                    {
+                        abort =
+                            true;
+                    }
+
+                    continue;
+                }
+
+                if (
+                    !button->IsDown() &&
+                    !button->IsUp()
+                )
+                {
+                    continue;
+                }
+
+                const auto action =
+                    SkyDoomArcadeActionFor(
+                        *button,
+                        bindings
+                    );
+
+                if (action != 0)
+                {
+                    g_arcade.keyHeld[action] =
+                        button->IsDown();
+
+                    RefreshSkyDoomArcadeAction(
+                        action
+                    );
+                }
+
+                continue;
+            }
+
+            if (event->GetEventType() == RE::INPUT_EVENT_TYPE::kMouseMove)
+            {
+                const auto* move =
+                    static_cast<const RE::MouseMoveEvent*>(event);
+
+                turn +=
+                    static_cast<float>(
+                        move->mouseInputX
+                    ) *
+                    kSkyDoomArcadeMouseTurnScale;
+
+                continue;
+            }
+
+            if (event->GetEventType() == RE::INPUT_EVENT_TYPE::kThumbstick)
+            {
+                const auto* stick =
+                    static_cast<const RE::ThumbstickEvent*>(event);
+
+                if (stick->IsLeft())
+                {
+                    const float x =
+                        stick->xValue;
+
+                    const float y =
+                        stick->yValue;
+
+                    g_arcade.stickHeld[SKYDOOM_ARCADE_FORWARD] =
+                        y > kSkyDoomArcadeStickDeadzone;
+
+                    g_arcade.stickHeld[SKYDOOM_ARCADE_BACK] =
+                        y < -kSkyDoomArcadeStickDeadzone;
+
+                    g_arcade.stickHeld[SKYDOOM_ARCADE_STRAFE_RIGHT] =
+                        x > kSkyDoomArcadeStickDeadzone;
+
+                    g_arcade.stickHeld[SKYDOOM_ARCADE_STRAFE_LEFT] =
+                        x < -kSkyDoomArcadeStickDeadzone;
+
+                    // Run when the stick is pushed all the way.
+                    g_arcade.stickHeld[SKYDOOM_ARCADE_RUN] =
+                        x * x + y * y > 0.81f;
+
+                    for (
+                        const auto action : {
+                            SKYDOOM_ARCADE_FORWARD,
+                            SKYDOOM_ARCADE_BACK,
+                            SKYDOOM_ARCADE_STRAFE_LEFT,
+                            SKYDOOM_ARCADE_STRAFE_RIGHT,
+                            SKYDOOM_ARCADE_RUN
+                        }
+                    )
+                    {
+                        RefreshSkyDoomArcadeAction(
+                            action
+                        );
+                    }
+                }
+                else if (stick->IsRight())
+                {
+                    g_arcade.rightStickX =
+                        stick->xValue;
+                }
+            }
+        }
+
+        // The right stick turns continuously while held.
+        if (std::abs(g_arcade.rightStickX) > kSkyDoomArcadeTurnDeadzone)
+        {
+            turn +=
+                g_arcade.rightStickX *
+                kSkyDoomArcadeStickTurnPerSec *
+                dt;
+        }
+
+        turn +=
+            g_arcade.turnRemainder;
+
+        const int whole =
+            static_cast<int>(
+                turn
+            );
+
+        g_arcade.turnRemainder =
+            turn - static_cast<float>(whole);
+
+        if (whole != 0)
+        {
+            PushSkyDoomArcadeInput(
+                SKYDOOM_INPUT_EVENT_ARCADE_TURN,
+                0,
+                std::clamp(
+                    whole,
+                    -4000,
+                    4000
+                )
+            );
+        }
+
+        if (abort)
+        {
+            StopSkyDoomArcade(
+                "abandoned with the Toggle DOOM mode key",
+                "You leave DOOM."
+            );
+        }
+    }
+
+    // Pauses Skyrim while the minigame runs. It has no movie: the Present
+    // hook draws DOOM.
+    class SkyDoomArcadeMenu final :
+        public RE::IMenu
+    {
+    public:
+        SkyDoomArcadeMenu()
+        {
+            menuFlags.set(
+                Flag::kPausesGame,
+                Flag::kDisablePauseMenu,
+                Flag::kModal
+            );
+
+            depthPriority =
+                10;
+
+            inputContext =
+                Context::kNone;
+        }
+
+        static RE::IMenu* Create()
+        {
+            return new SkyDoomArcadeMenu();
+        }
+    };
+
+    void StopSkyDoomArcade(
+        std::string_view a_reason,
+        const char* a_message
+    )
+    {
+        if (!SkyDoomArcadeActive())
+        {
+            return;
+        }
+
+        g_arcadePhase =
+            SkyDoomArcadePhase::kIdle;
+
+        {
+            std::scoped_lock lock(
+                g_arcadeMutex
+            );
+
+            if (g_arcade.process)
+            {
+                TerminateProcess(
+                    g_arcade.process,
+                    0
+                );
+
+                CloseHandle(
+                    g_arcade.process
+                );
+            }
+
+            if (g_arcade.state)
+            {
+                UnmapViewOfFile(
+                    g_arcade.state
+                );
+            }
+
+            if (g_arcade.mapping)
+            {
+                CloseHandle(
+                    g_arcade.mapping
+                );
+            }
+
+            g_arcade =
+                SkyDoomArcadeSession{};
+        }
+
+        if (auto* queue = RE::UIMessageQueue::GetSingleton())
+        {
+            queue->AddMessage(
+                kSkyDoomArcadeMenuName,
+                RE::UI_MESSAGE_TYPE::kHide,
+                nullptr
+            );
+        }
+
+        if (a_message)
+        {
+            RE::SendHUDMessage::ShowHUDMessage(
+                a_message
+            );
+        }
+
+        logger::info(
+            "SkyDoom arcade: ended ({})",
+            a_reason
+        );
+    }
+
+    bool StartSkyDoomArcade()
+    {
+        if (SkyDoomArcadeActive())
+        {
+            return false;
+        }
+
+        if (
+            g_doomExePath.empty() ||
+            g_doomWadPath.empty() ||
+            !g_doomJob ||
+            !g_inputHookInstalled
+        )
+        {
+            logger::warn(
+                "SkyDoom arcade: cannot start (DOOM runtime, DOOM.WAD, job object or input hook missing)"
+            );
+
+            RE::SendHUDMessage::ShowHUDMessage(
+                "The pages are blank. DOOM could not be started."
+            );
+
+            return false;
+        }
+
+        std::string mappingName;
+
+        if (
+            !SkyDoomCreateMappingName(
+                mappingName
+            )
+        )
+        {
+            return false;
+        }
+
+        PSECURITY_DESCRIPTOR descriptor =
+            SkyDoomCreateUserOnlyDescriptor();
+
+        SECURITY_ATTRIBUTES attributes{};
+
+        attributes.nLength =
+            sizeof(attributes);
+
+        attributes.lpSecurityDescriptor =
+            descriptor;
+
+        HANDLE mapping =
+            CreateFileMappingA(
+                INVALID_HANDLE_VALUE,
+                descriptor ?
+                    &attributes :
+                    nullptr,
+                PAGE_READWRITE,
+                0,
+                sizeof(SkyDoomSharedState),
+                mappingName.c_str()
+            );
+
+        const DWORD creationStatus =
+            GetLastError();
+
+        if (descriptor)
+        {
+            LocalFree(
+                descriptor
+            );
+        }
+
+        if (
+            !mapping ||
+            creationStatus == ERROR_ALREADY_EXISTS
+        )
+        {
+            if (mapping)
+            {
+                CloseHandle(
+                    mapping
+                );
+            }
+
+            logger::error(
+                "SkyDoom arcade: could not create shared memory ({})",
+                creationStatus
+            );
+
+            return false;
+        }
+
+        auto* state =
+            static_cast<SkyDoomSharedState*>(
+                MapViewOfFile(
+                    mapping,
+                    FILE_MAP_ALL_ACCESS,
+                    0,
+                    0,
+                    sizeof(SkyDoomSharedState)
+                )
+            );
+
+        if (!state)
+        {
+            CloseHandle(
+                mapping
+            );
+
+            return false;
+        }
+
+        ZeroMemory(
+            state,
+            sizeof(SkyDoomSharedState)
+        );
+
+        state->magic =
+            SKYDOOM_MAGIC;
+
+        state->version =
+            SKYDOOM_VERSION;
+
+        state->struct_size =
+            static_cast<std::uint32_t>(
+                sizeof(SkyDoomSharedState)
+            );
+
+        state->overlay.width =
+            SKYDOOM_OVERLAY_WIDTH;
+
+        state->overlay.height =
+            SKYDOOM_OVERLAY_HEIGHT;
+
+        state->skyrim.running =
+            1;
+
+        state->skyrim.pid =
+            GetCurrentProcessId();
+
+        state->skyrim.in_game =
+            1;
+
+        state->skyrim.heartbeat_ms =
+            GetTickCount64();
+
+        std::wstring commandLine =
+            L"\"" + g_doomExePath +
+            L"\" -iwad \"" + g_doomWadPath +
+            L"\" -warp 1 1 -skill 3 -nomouse -window -skydoomarcade " +
+            SkyDoomUtf8ToWide(SKYDOOM_MAPPING_ARG) +
+            L" " +
+            SkyDoomUtf8ToWide(mappingName);
+
+        STARTUPINFOW startupInfo{};
+
+        startupInfo.cb =
+            sizeof(startupInfo);
+
+        startupInfo.dwFlags =
+            STARTF_USESHOWWINDOW;
+
+        startupInfo.wShowWindow =
+            SW_HIDE;
+
+        PROCESS_INFORMATION processInfo{};
+
+        bool launched =
+            CreateProcessW(
+                g_doomExePath.c_str(),
+                commandLine.data(),
+                nullptr,
+                nullptr,
+                FALSE,
+                CREATE_SUSPENDED | CREATE_NO_WINDOW,
+                nullptr,
+                g_doomWorkingDirectory.c_str(),
+                &startupInfo,
+                &processInfo
+            );
+
+        // In the combat guest's job, so it dies with Skyrim.
+        launched =
+            launched &&
+            AssignProcessToJobObject(
+                g_doomJob,
+                processInfo.hProcess
+            );
+
+        launched =
+            launched &&
+            ResumeThread(
+                processInfo.hThread
+            ) != static_cast<DWORD>(-1);
+
+        const DWORD launchError =
+            launched ?
+                0 :
+                GetLastError();
+
+        if (processInfo.hThread)
+        {
+            CloseHandle(
+                processInfo.hThread
+            );
+        }
+
+        if (!launched)
+        {
+            logger::error(
+                "SkyDoom arcade: could not launch DOOM (Win32 error {})",
+                launchError
+            );
+
+            if (processInfo.hProcess)
+            {
+                TerminateProcess(
+                    processInfo.hProcess,
+                    1
+                );
+
+                CloseHandle(
+                    processInfo.hProcess
+                );
+            }
+
+            UnmapViewOfFile(
+                state
+            );
+
+            CloseHandle(
+                mapping
+            );
+
+            RE::SendHUDMessage::ShowHUDMessage(
+                "The pages are blank. DOOM could not be started."
+            );
+
+            return false;
+        }
+
+        {
+            std::scoped_lock lock(
+                g_arcadeMutex
+            );
+
+            g_arcade =
+                SkyDoomArcadeSession{};
+
+            g_arcade.mapping =
+                mapping;
+
+            g_arcade.state =
+                state;
+
+            g_arcade.process =
+                processInfo.hProcess;
+
+            g_arcade.startedMs =
+                GetTickCount64();
+        }
+
+        g_arcadePhase =
+            SkyDoomArcadePhase::kStarting;
+
+        if (auto* queue = RE::UIMessageQueue::GetSingleton())
+        {
+            queue->AddMessage(
+                kSkyDoomArcadeMenuName,
+                RE::UI_MESSAGE_TYPE::kShow,
+                nullptr
+            );
+        }
+
+        logger::info(
+            "SkyDoom arcade: started (pid {})",
+            processInfo.dwProcessId
+        );
+
+        return true;
+    }
+
+    // UpdateSharedState, every 50 ms on the main thread.
+    void UpdateSkyDoomArcade()
+    {
+        if (!SkyDoomArcadeActive())
+        {
+            return;
+        }
+
+        auto* state =
+            g_arcade.state;
+
+        if (
+            !state ||
+            !g_arcade.process
+        )
+        {
+            StopSkyDoomArcade(
+                "lost its state",
+                nullptr
+            );
+
+            return;
+        }
+
+        if (
+            WaitForSingleObject(
+                g_arcade.process,
+                0
+            ) == WAIT_OBJECT_0
+        )
+        {
+            StopSkyDoomArcade(
+                "DOOM exited",
+                "DOOM closed unexpectedly."
+            );
+
+            return;
+        }
+
+        // Level and episode ends arrive on the combat ring.
+        auto& ring =
+            state->combat;
+
+        for (
+            std::uint32_t i = 0;
+            i < SKYDOOM_COMBAT_RING_ENTRIES;
+            ++i
+        )
+        {
+            const std::uint32_t head =
+                ring.head;
+
+            const std::uint32_t tail =
+                ring.tail;
+
+            if (
+                tail == head ||
+                head - tail > SKYDOOM_COMBAT_RING_ENTRIES
+            )
+            {
+                ring.tail =
+                    head;
+
+                break;
+            }
+
+            MemoryBarrier();
+
+            const auto event =
+                ring.events[tail & SKYDOOM_COMBAT_RING_MASK];
+
+            ring.tail =
+                tail + 1u;
+
+            if (event.type != SKYDOOM_COMBAT_EVENT_ARCADE)
+            {
+                continue;
+            }
+
+            if (event.weapon == SKYDOOM_ARCADE_STATUS_EPISODE_DONE)
+            {
+                logger::info(
+                    "SkyDoom arcade: episode {} finished",
+                    event.damage
+                );
+
+                StopSkyDoomArcade(
+                    "episode finished",
+                    "Knee-Deep in the Dead is finished. You return to Skyrim."
+                );
+
+                return;
+            }
+
+            if (event.weapon == SKYDOOM_ARCADE_STATUS_LEVEL_DONE)
+            {
+                logger::info(
+                    "SkyDoom arcade: level finished, next E{}M{}",
+                    event.damage,
+                    event.angle_offset
+                );
+
+                StopSkyDoomArcade(
+                    "level finished",
+                    "Level complete. You return to Skyrim."
+                );
+
+                return;
+            }
+        }
+
+        const std::uint64_t now =
+            GetTickCount64();
+
+        if (
+            g_arcadePhase.load() == SkyDoomArcadePhase::kStarting &&
+            now - g_arcade.startedMs > kSkyDoomArcadeStartTimeoutMs
+        )
+        {
+            StopSkyDoomArcade(
+                "DOOM showed no picture",
+                "The pages are blank. DOOM could not be started."
+            );
+
+            return;
+        }
+
+        if (
+            g_arcadePhase.load() == SkyDoomArcadePhase::kPlaying &&
+            now > state->doom.heartbeat_ms &&
+            now - state->doom.heartbeat_ms > kSkyDoomArcadeHangTimeoutMs
+        )
+        {
+            StopSkyDoomArcade(
+                "DOOM stopped responding",
+                "DOOM stopped responding. You return to Skyrim."
+            );
+
+            return;
+        }
+
+        // Keep Skyrim paused if something else closed the menu.
+        auto* ui =
+            RE::UI::GetSingleton();
+
+        if (
+            ui &&
+            now - g_arcade.startedMs > 1000 &&
+            !ui->IsMenuOpen(kSkyDoomArcadeMenuName)
+        )
+        {
+            if (auto* queue = RE::UIMessageQueue::GetSingleton())
+            {
+                queue->AddMessage(
+                    kSkyDoomArcadeMenuName,
+                    RE::UI_MESSAGE_TYPE::kShow,
+                    nullptr
+                );
+            }
+        }
+    }
+
+    // Present hook: returns true when the minigame owns the screen.
+    bool RenderSkyDoomArcade(
+        IDXGISwapChain* a_swapChain
+    )
+    {
+        if (!SkyDoomArcadeActive())
+        {
+            return false;
+        }
+
+        if (
+            !InitializeOverlayGraphics(
+                a_swapChain
+            ) ||
+            !EnsureBackBufferRTV(
+                a_swapChain
+            )
+        )
+        {
+            return true;
+        }
+
+        if (!g_arcadeTexture)
+        {
+            D3D11_TEXTURE2D_DESC textureDesc{};
+
+            textureDesc.Width =
+                SKYDOOM_OVERLAY_WIDTH;
+
+            textureDesc.Height =
+                SKYDOOM_OVERLAY_HEIGHT;
+
+            textureDesc.MipLevels =
+                1;
+
+            textureDesc.ArraySize =
+                1;
+
+            textureDesc.Format =
+                DXGI_FORMAT_R8G8B8A8_UNORM;
+
+            textureDesc.SampleDesc.Count =
+                1;
+
+            textureDesc.Usage =
+                D3D11_USAGE_DYNAMIC;
+
+            textureDesc.BindFlags =
+                D3D11_BIND_SHADER_RESOURCE;
+
+            textureDesc.CPUAccessFlags =
+                D3D11_CPU_ACCESS_WRITE;
+
+            D3D11_BUFFER_DESC bufferDesc{};
+
+            bufferDesc.ByteWidth =
+                static_cast<UINT>(
+                    sizeof(OverlayVertex) * 6
+                );
+
+            bufferDesc.Usage =
+                D3D11_USAGE_DYNAMIC;
+
+            bufferDesc.BindFlags =
+                D3D11_BIND_VERTEX_BUFFER;
+
+            bufferDesc.CPUAccessFlags =
+                D3D11_CPU_ACCESS_WRITE;
+
+            if (
+                FAILED(g_device->CreateTexture2D(&textureDesc, nullptr, &g_arcadeTexture)) ||
+                FAILED(g_device->CreateShaderResourceView(g_arcadeTexture.Get(), nullptr, &g_arcadeSRV)) ||
+                FAILED(g_device->CreateBuffer(&bufferDesc, nullptr, &g_arcadeVertexBuffer))
+            )
+            {
+                g_arcadeTexture.Reset();
+                g_arcadeSRV.Reset();
+                g_arcadeVertexBuffer.Reset();
+
+                return true;
+            }
+        }
+
+        const float black[4] = {
+            0.0f,
+            0.0f,
+            0.0f,
+            1.0f
+        };
+
+        g_context->ClearRenderTargetView(
+            g_backBufferRTV.Get(),
+            black
+        );
+
+        {
+            std::scoped_lock lock(
+                g_arcadeMutex
+            );
+
+            auto* state =
+                g_arcade.state;
+
+            if (!state)
+            {
+                return true;
+            }
+
+            state->skyrim.heartbeat_ms =
+                GetTickCount64();
+
+            state->skyrim.update_counter++;
+
+            // Seqlock read of the newest frame.
+            auto& overlay =
+                state->overlay;
+
+            for (int attempt = 0; attempt < 4; ++attempt)
+            {
+                const auto seq1 =
+                    overlay.seq;
+
+                if (seq1 & 1u)
+                {
+                    continue;
+                }
+
+                MemoryBarrier();
+
+                const auto frame =
+                    overlay.frame_id;
+
+                if (
+                    frame == g_arcade.lastFrame ||
+                    overlay.flags != SKYDOOM_OVERLAY_FLAG_FULLFRAME
+                )
+                {
+                    break;
+                }
+
+                std::memcpy(
+                    g_arcade.pixels.data(),
+                    overlay.rgba,
+                    SKYDOOM_OVERLAY_RGBA_BYTES
+                );
+
+                MemoryBarrier();
+
+                if (overlay.seq == seq1)
+                {
+                    g_arcade.lastFrame =
+                        frame;
+
+                    g_arcade.haveFrame =
+                        true;
+
+                    g_arcade.frameUploaded =
+                        false;
+
+                    break;
+                }
+            }
+
+            if (!g_arcade.haveFrame)
+            {
+                return true;
+            }
+
+            if (g_arcadePhase.load() == SkyDoomArcadePhase::kStarting)
+            {
+                g_arcadePhase =
+                    SkyDoomArcadePhase::kPlaying;
+            }
+
+            if (!g_arcade.frameUploaded)
+            {
+                D3D11_MAPPED_SUBRESOURCE mapped{};
+
+                if (
+                    SUCCEEDED(
+                        g_context->Map(
+                            g_arcadeTexture.Get(),
+                            0,
+                            D3D11_MAP_WRITE_DISCARD,
+                            0,
+                            &mapped
+                        )
+                    )
+                )
+                {
+                    for (std::uint32_t y = 0; y < SKYDOOM_OVERLAY_HEIGHT; ++y)
+                    {
+                        std::memcpy(
+                            static_cast<std::uint8_t*>(mapped.pData) + y * mapped.RowPitch,
+                            g_arcade.pixels.data() + y * SKYDOOM_OVERLAY_WIDTH * 4,
+                            SKYDOOM_OVERLAY_WIDTH * 4
+                        );
+                    }
+
+                    g_context->Unmap(
+                        g_arcadeTexture.Get(),
+                        0
+                    );
+
+                    g_arcade.frameUploaded =
+                        true;
+                }
+            }
+        }
+
+        // DOOM's 320x200 is shown at 4:3, centred.
+        const float screenWidth =
+            static_cast<float>(g_backBufferWidth);
+
+        const float screenHeight =
+            static_cast<float>(g_backBufferHeight);
+
+        if (
+            screenWidth <= 0.0f ||
+            screenHeight <= 0.0f
+        )
+        {
+            return true;
+        }
+
+        float halfWidth =
+            1.0f;
+
+        float halfHeight =
+            1.0f;
+
+        if (screenWidth * 3.0f > screenHeight * 4.0f)
+        {
+            halfWidth =
+                (screenHeight * 4.0f / 3.0f) / screenWidth;
+        }
+        else
+        {
+            halfHeight =
+                (screenWidth * 3.0f / 4.0f) / screenHeight;
+        }
+
+        const OverlayVertex vertices[6] = {
+            { -halfWidth, halfHeight, 0.0f, 0.0f, 0.0f },
+            { halfWidth, halfHeight, 0.0f, 1.0f, 0.0f },
+            { halfWidth, -halfHeight, 0.0f, 1.0f, 1.0f },
+            { -halfWidth, halfHeight, 0.0f, 0.0f, 0.0f },
+            { halfWidth, -halfHeight, 0.0f, 1.0f, 1.0f },
+            { -halfWidth, -halfHeight, 0.0f, 0.0f, 1.0f }
+        };
+
+        D3D11_MAPPED_SUBRESOURCE mappedVertices{};
+
+        if (
+            FAILED(
+                g_context->Map(
+                    g_arcadeVertexBuffer.Get(),
+                    0,
+                    D3D11_MAP_WRITE_DISCARD,
+                    0,
+                    &mappedVertices
+                )
+            )
+        )
+        {
+            return true;
+        }
+
+        std::memcpy(
+            mappedVertices.pData,
+            vertices,
+            sizeof(vertices)
+        );
+
+        g_context->Unmap(
+            g_arcadeVertexBuffer.Get(),
+            0
+        );
+
+        g_context->OMSetRenderTargets(
+            1,
+            g_backBufferRTV.GetAddressOf(),
+            nullptr
+        );
+
+        D3D11_VIEWPORT viewport{};
+
+        viewport.Width =
+            screenWidth;
+
+        viewport.Height =
+            screenHeight;
+
+        viewport.MaxDepth =
+            1.0f;
+
+        g_context->RSSetViewports(
+            1,
+            &viewport
+        );
+
+        g_context->RSSetState(
+            g_rasterizer.Get()
+        );
+
+        const UINT stride =
+            sizeof(OverlayVertex);
+
+        const UINT offset =
+            0;
+
+        ID3D11Buffer* vertexBuffers[] = {
+            g_arcadeVertexBuffer.Get()
+        };
+
+        g_context->IASetVertexBuffers(
+            0,
+            1,
+            vertexBuffers,
+            &stride,
+            &offset
+        );
+
+        g_context->IASetInputLayout(
+            g_inputLayout.Get()
+        );
+
+        g_context->IASetPrimitiveTopology(
+            D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST
+        );
+
+        g_context->VSSetShader(
+            g_vertexShader.Get(),
+            nullptr,
+            0
+        );
+
+        g_context->PSSetShader(
+            g_pixelShader.Get(),
+            nullptr,
+            0
+        );
+
+        ID3D11ShaderResourceView* srvs[] = {
+            g_arcadeSRV.Get()
+        };
+
+        g_context->PSSetShaderResources(
+            0,
+            1,
+            srvs
+        );
+
+        ID3D11SamplerState* samplers[] = {
+            g_pointSampler.Get()
+        };
+
+        g_context->PSSetSamplers(
+            0,
+            1,
+            samplers
+        );
+
+        const float blendFactor[4] = {
+            0.0f,
+            0.0f,
+            0.0f,
+            0.0f
+        };
+
+        g_context->OMSetBlendState(
+            g_alphaBlend.Get(),
+            blendFactor,
+            0xFFFFFFFFu
+        );
+
+        g_context->OMSetDepthStencilState(
+            g_depthDisabled.Get(),
+            0
+        );
+
+        g_context->Draw(
+            6,
+            0
+        );
+
+        ID3D11ShaderResourceView* nullSRV =
+            nullptr;
+
+        g_context->PSSetShaderResources(
+            0,
+            1,
+            &nullSRV
+        );
+
+        return true;
+    }
+
+    // Book Menu: closing "Knee-Deep in the Dead" starts the minigame.
+    class SkyDoomArcadeBookSink final :
+        public RE::BSTEventSink<RE::MenuOpenCloseEvent>
+    {
+    public:
+        static SkyDoomArcadeBookSink* GetSingleton()
+        {
+            static SkyDoomArcadeBookSink singleton;
+
+            return &singleton;
+        }
+
+        RE::BSEventNotifyControl ProcessEvent(
+            const RE::MenuOpenCloseEvent* a_event,
+            RE::BSTEventSource<RE::MenuOpenCloseEvent>*
+        ) override
+        {
+            if (
+                !a_event ||
+                std::string_view(a_event->menuName.c_str()) != RE::BookMenu::MENU_NAME
+            )
+            {
+                return RE::BSEventNotifyControl::kContinue;
+            }
+
+            if (a_event->opening)
+            {
+                auto* book =
+                    GetSkyDoomArcadeBook();
+
+                g_arcadeBookOpen =
+                    book &&
+                    RE::BookMenu::GetTargetForm() == book;
+            }
+            else if (g_arcadeBookOpen.exchange(false))
+            {
+                if (auto* tasks = SKSE::GetTaskInterface())
+                {
+                    tasks->AddTask(
+                        []()
+                        {
+                            StartSkyDoomArcade();
+                        }
+                    );
+                }
+            }
+
+            return RE::BSEventNotifyControl::kContinue;
+        }
+    };
+
+    // On every load and new game: the player always has the book.
+    void GiveSkyDoomArcadeBook()
+    {
+        auto* book =
+            GetSkyDoomArcadeBook();
+
+        auto* player =
+            RE::PlayerCharacter::GetSingleton();
+
+        if (
+            !book ||
+            !player
+        )
+        {
+            return;
+        }
+
+        const auto counts =
+            player->GetInventoryCounts(
+                [book](RE::TESBoundObject& a_object)
+                {
+                    return &a_object == book;
+                }
+            );
+
+        if (
+            !counts.empty() &&
+            counts.begin()->second > 0
+        )
+        {
+            return;
+        }
+
+        player->AddObjectToContainer(
+            book,
+            nullptr,
+            1,
+            nullptr
+        );
+
+        RE::SendHUDMessage::ShowHUDMessage(
+            "A strange book is in your pack: Knee-Deep in the Dead."
+        );
+
+        logger::info(
+            "SkyDoom arcade: book given to the player"
+        );
+    }
+
+    void RegisterSkyDoomArcade()
+    {
+        if (auto* ui = RE::UI::GetSingleton())
+        {
+            ui->Register(
+                kSkyDoomArcadeMenuName,
+                SkyDoomArcadeMenu::Create
+            );
+
+            ui->AddEventSink<RE::MenuOpenCloseEvent>(
+                SkyDoomArcadeBookSink::GetSingleton()
+            );
+        }
+
+        if (!GetSkyDoomArcadeBook())
+        {
+            logger::warn(
+                "SkyDoom arcade: book not found in SkyDoom.esp; the minigame cannot be started"
+            );
+        }
+    }
+
 	// ========================================================
 	// SWAP CHAIN HOOKS
 	// ========================================================
@@ -10044,6 +11728,20 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 		UINT syncInterval,
 		UINT flags)
 	{
+        // SKYDOOM_ARCADE: the DOOM minigame owns the screen while it runs.
+        if (
+            RenderSkyDoomArcade(
+                swapChain
+            )
+        )
+        {
+            return g_originalPresent(
+                swapChain,
+                syncInterval,
+                flags
+            );
+        }
+
         // SKYDOOM_TARGET_CROSSHAIR_V15_7_R1
         const bool skyDoomOwnsCrosshair =
             g_state &&
@@ -42575,6 +44273,9 @@ SKSE::log::info(
 
 	void UpdateSharedState()
 	{
+		// SKYDOOM_ARCADE
+		UpdateSkyDoomArcade();
+
 		if (!g_state) {
 			return;
 		}
@@ -42874,6 +44575,8 @@ SKSE::log::info(
 		}
 
 		InstallInputDispatchHook();
+		// SKYDOOM_ARCADE
+		RegisterSkyDoomArcade();
 
 		if (
 			!InstallRenderHook()) {
@@ -42981,6 +44684,13 @@ SKSEPluginLoad(
 
 					OnDataLoaded();
 
+					break;
+				// SKYDOOM_ARCADE: the player always has the book.
+				case SKSE::MessagingInterface::kPostLoadGame:
+				case SKSE::MessagingInterface::kNewGame:
+					if (auto* tasks = SKSE::GetTaskInterface()) {
+						tasks->AddTask(GiveSkyDoomArcadeBook);
+					}
 					break;
 
 				default:

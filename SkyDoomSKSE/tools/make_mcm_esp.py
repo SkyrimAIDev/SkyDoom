@@ -1,12 +1,17 @@
-"""Generate SkyDoom.esp, the light plugin that hosts SkyDoom's MCM.
+"""Generate SkyDoom.esp, the light plugin that hosts SkyDoom's MCM and the
+DOOM minigame book.
 
-The plugin holds a single quest, the layout MCM Helper expects (and that
-mods such as Better Third Person Selection and TrueHUD ship):
+The plugin holds a quest, the layout MCM Helper expects (and that mods such
+as Better Third Person Selection and TrueHUD ship):
 
   * QUST "SkyDoom_MCM": Start Game Enabled + Run Once, with the
     SkyDoom_MCM script (extends MCM_ConfigBase) attached;
   * one reference alias "PlayerAlias" forced to the player (0x14), with
     SkyUI's SKI_PlayerLoadGameAlias script so the menu re-registers on load.
+
+and a book, "Knee-Deep in the Dead" (SkyDoom_ArcadeBook, 0x801). The SKSE
+plugin puts it in the player's inventory and starts the DOOM minigame when
+it is closed after reading (SKYDOOM_ARCADE).
 
 The root .gitignore excludes *.esp, so the plugin is generated at package
 time instead of being committed.
@@ -18,6 +23,7 @@ import struct
 import sys
 
 QUEST_FORM_ID = 0x01000800  # first light-plugin object ID
+BOOK_FORM_ID = 0x01000801  # kSkyDoomArcadeBookLocalId in Plugin.cpp
 FORM_VERSION = 44  # Skyrim SE
 
 
@@ -78,14 +84,61 @@ def quest():
     return record(b"QUST", QUEST_FORM_ID, 0, data)
 
 
+BOOK_TEXT = """<p align="center">
+<font size="36">KNEE-DEEP
+IN THE DEAD</font>
+
+
+A record of the
+Phobos Anomaly
+</p>
+[pagebreak]
+<p align="left">
+The binding is warm, as if something on the other side of the pages is breathing. The words do not stay still. They crawl into corridors of metal and stone, lit by a red that no forge in Skyrim has ever made.
+
+Somewhere beyond them is a gate, and beyond the gate is a hangar full of the dead who did not stay dead.
+
+You have the feeling the book wants to be finished. Not read. Finished.
+</p>
+[pagebreak]
+<p align="left">
+Close this book to be pulled through.
+
+You will fight as you fight in DOOM, with whatever you can find. Your own weapons and armour stay behind.
+
+Reach the exit of the level and the gate lets you go, back to where you stood.
+
+If the way back is ever lost, hold the Toggle DOOM mode key.
+</p>
+"""
+
+
+def book():
+    data = subrecord(b"EDID", zstring("SkyDoom_ArcadeBook"))
+    data += subrecord(b"OBND", struct.pack("<6h", -9, -11, -1, 9, 11, 2))
+    data += subrecord(b"FULL", zstring("Knee-Deep in the Dead"))
+    data += subrecord(b"MODL", zstring("Clutter\\Books\\BasicBook07.nif"))
+    data += subrecord(b"DESC", zstring(BOOK_TEXT.replace("\n", "\r\n")))
+    data += subrecord(b"KSIZ", struct.pack("<I", 1))
+    data += subrecord(b"KWDA", struct.pack("<I", 0x000937A2))  # VendorItemBook
+    # Flags, type (book), unused, teaches (none), value, weight. Worth
+    # nothing and weightless: the plugin gives it back if it goes missing.
+    data += subrecord(b"DATA", struct.pack("<BBHiIf", 0, 0, 0, -1, 0, 0.0))
+    data += subrecord(b"INAM", struct.pack("<I", 0x00015417))  # vanilla book inventory art
+    data += subrecord(b"CNAM", zstring(""))
+    return record(b"BOOK", BOOK_FORM_ID, 0, data)
+
+
 def plugin():
-    header = subrecord(b"HEDR", struct.pack("<fII", 1.70, 2, (QUEST_FORM_ID & 0xFFF) + 1))
+    # HEDR: version, number of records and groups, next object ID.
+    header = subrecord(b"HEDR", struct.pack("<fII", 1.70, 4, (BOOK_FORM_ID & 0xFFF) + 1))
     header += subrecord(b"CNAM", zstring("DEFAULT"))
     header += subrecord(b"MAST", zstring("Skyrim.esm"))
     header += subrecord(b"DATA", struct.pack("<Q", 0))
     header += subrecord(b"INTV", struct.pack("<I", 1))
     tes4 = record(b"TES4", 0, 0x200, header)  # 0x200 = ESL (light)
-    return tes4 + group(b"QUST", quest())
+    # Top-level groups in the game's order: BOOK comes before QUST.
+    return tes4 + group(b"BOOK", book()) + group(b"QUST", quest())
 
 
 if __name__ == "__main__":
