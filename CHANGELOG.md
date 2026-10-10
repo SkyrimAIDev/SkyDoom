@@ -8,9 +8,25 @@ first. Each build is made from its `release/<version>` branch, and its
 Each section starts with a `Status:` line (how far the build has been
 tested), followed by the changes since the previous build.
 
-## v0.1.16-beta - 2026-10-10
+## v0.1.17-beta - 2026-10-10
 
 Status: In testing.
+
+- Fixed: Skyrim did not know DOOM hits were yours. Quests that watch who
+  hits an enemy missed them; for example, the Companions said you did not
+  help with the giant at Pelagia Farm after you killed it with the
+  chainsaw. Every DOOM hit now counts as the player's hit in Skyrim's
+  scripts.
+- Changed: with combat mods that hook Skyrim's hit processing (Precision
+  and the like), SkyDoom now still uses Skyrim's native hit handling for
+  DOOM weapons instead of falling back to plain damage, so DOOM hits get
+  Skyrim's hit reactions and impact effects as the original SkyDoom
+  intended.
+
+## v0.1.16-beta - 2026-10-10
+
+Status: Tested on Skyrim 1.6.1170 (NGVO). The audio balance is much
+better, and the chainsaw sound now stops when leaving DOOM combat.
 
 - New: MCM Audio page. For SkyDoom combat: DOOM sound effects volume
   (default 15, the maximum) and DOOM music volume (default 8), on DOOM's
