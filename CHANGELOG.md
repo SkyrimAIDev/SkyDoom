@@ -8,9 +8,23 @@ first. Each build is made from its `release/<version>` branch, and its
 Each section starts with a `Status:` line (how far the build has been
 tested), followed by the changes since the previous build.
 
-## v0.1.19-beta - 2026-10-10
+## v0.1.20-beta - 2026-10-10
 
 Status: In testing.
+
+- Fixed: DOOM guns did not set off hanging oil lamps (or anything else that
+  reacts to being hit). DOOM bullets now travel like arrows: they hit what
+  an arrow would hit, including things you can walk through, and whatever
+  they hit is told it was hit. A shot oil lamp drops and lights the oil
+  below it.
+- New: DOOM rocket explosions count as fire. Oil slicks and gas pockets
+  caught in a blast ignite, and anything else in the blast is told it was
+  hit.
+
+## v0.1.19-beta - 2026-10-10
+
+Status: In testing. Hanging oil lamps did not react to DOOM guns (fixed in
+v0.1.20-beta).
 
 - New: DOOM weapons train your Skyrim skills: guns train Archery, the fist
   and chainsaw train One-Handed. DOOM fires far faster than Skyrim
