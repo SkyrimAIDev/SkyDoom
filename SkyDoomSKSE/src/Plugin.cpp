@@ -31860,18 +31860,21 @@ float screenX =
 
         Rocket explosions also hit objects, not just actors.
         ApplySkyDoomRocketSplash runs once per explosion (wall hit, actor
-        hit or timed-out impact) and calls this with the explosion point
-        and DOOM's 128-unit splash radius in Skyrim units. It visits the
-        non-actor references whose bound sphere reaches into the blast
-        and that the explosion can see:
+        hit or timed-out impact) and calls ApplySkyDoomBlastToObjects with
+        the explosion point and DOOM's 128-unit splash radius in Skyrim
+        units. SKYDOOM_PLASMA_BFG_OBJECTS: plasma bolts and BFG balls call
+        it where they strike, as a small burn and a rocket-sized burst. It
+        visits the non-actor references whose bound sphere reaches into
+        the blast and that the explosion can see:
 
-        - destructible objects (spider webs, barricades, ...) take DOOM's
-          splash damage, 128 minus the distance in DOOM units, scaled by
-          the MCM damage multiplier, like any DOOM weapon hit;
+        - destructible objects (spider webs, barricades, ...) take the
+          blast's damage, less the distance in DOOM units (DOOM's splash
+          rule), scaled by the MCM damage multiplier, like any DOOM weapon
+          hit;
         - SKYDOOM_FIRE: oil pools and gas pockets catch fire, see
           IgniteSkyDoomFireTrap;
         - SKYDOOM_DOOR_BUSTER (MCM, off by default) opens doors and gates,
-          see BustSkyDoomDoor and BustSkyDoomGate.
+          see BustSkyDoomDoor and BustSkyDoomGate. Rockets only.
 
         Main thread.
     */
@@ -31885,12 +31888,6 @@ float screenX =
     constexpr std::size_t
         kSkyDoomRocketBlastMaxObjects =
             64;
-
-    // Torch01: the blast's OnHit source, so scripts that check for fire
-    // see a burning torch.
-    constexpr RE::FormID
-        kSkyDoomBlastFireSourceId =
-            0x0001D4EC;
 
     /*
         SKYDOOM_DOOR_BUSTER
@@ -32403,7 +32400,8 @@ float screenX =
         as the source, did not light them in testing, so the blast calls
         GasExplode directly, with the player as the cause. Only while the
         script is in its "waiting" state: that is where its fire events
-        act, and the oil pool and beehive leave it once lit.
+        act, and the oil pool and beehive leave it once lit. Rocket, plasma
+        and BFG blasts all count as fire.
     */
     constexpr const char*
         kSkyDoomFireTrapScript =
@@ -32413,10 +32411,12 @@ float screenX =
         kSkyDoomFireTrapReadyState =
             "waiting";
 
-    // True if a_ref is a fire trap that was told to light.
+    // True if a_ref is a fire trap that was told to light. a_weapon names
+    // the blast in the log.
     bool IgniteSkyDoomFireTrap(
         RE::TESObjectREFR* a_ref,
-        RE::PlayerCharacter* a_player
+        RE::PlayerCharacter* a_player,
+        const char* a_weapon
     )
     {
         auto* vm =
@@ -32519,7 +32519,8 @@ float screenX =
         if (lit)
         {
             logger::info(
-                "SkyDoom rocket blast: fire trap ref={:08X} script={} lit",
+                "SkyDoom {} blast: fire trap ref={:08X} script={} lit",
+                a_weapon,
                 a_ref->GetFormID(),
                 trap->GetTypeInfo()->GetName()
             );
@@ -32528,10 +32529,15 @@ float screenX =
         return lit;
     }
 
-    void ApplySkyDoomRocketBlastToObjects(
+    // a_doomDamage: damage at the centre, in DOOM units. a_weapon names
+    // the blast in the log. a_canBustDoors: a rocket (SKYDOOM_DOOR_BUSTER).
+    void ApplySkyDoomBlastToObjects(
         const RE::NiPoint3& a_explosion,
         float a_radius,
-        float a_doomToSkyrimScale
+        float a_doomToSkyrimScale,
+        float a_doomDamage,
+        const char* a_weapon,
+        bool a_canBustDoors
     )
     {
         auto* player =
@@ -32551,6 +32557,7 @@ float screenX =
         }
 
         const bool bustDoors =
+            a_canBustDoors &&
             g_skyDoomRocketBustsDoors;
 
         // Collected first: damaging, unlocking or activating inside the
@@ -32639,7 +32646,7 @@ float screenX =
                 hits.push_back(
                     BlastHit{
                         a_ref,
-                        128.0f - gap / a_doomToSkyrimScale
+                        a_doomDamage - gap / a_doomToSkyrimScale
                     }
                 );
 
@@ -32663,15 +32670,17 @@ float screenX =
             // SKYDOOM_FIRE: oil pools and gas pockets catch fire.
             IgniteSkyDoomFireTrap(
                 hit.ref,
-                player
+                player,
+                a_weapon
             );
 
             // SKYDOOM_OBJECT_HITS: everything in the blast is told it was
-            // hit, by fire (Torch01) for scripts that check.
+            // hit, by the stand-in weapon, as DOOM shots are: that is what
+            // drops hanging oil lamps (they ignore weapon damage). A
+            // Torch01 source reached no script in testing.
             SendSkyDoomHitEvent(
                 hit.ref,
-                player,
-                kSkyDoomBlastFireSourceId
+                player
             );
 
             const auto* destructible =
@@ -32699,7 +32708,8 @@ float screenX =
                 );
 
                 logger::info(
-                    "SkyDoom rocket blast: destructible ref={:08X} damage={}",
+                    "SkyDoom {} blast: destructible ref={:08X} damage={}",
+                    a_weapon,
                     hit.ref->GetFormID(),
                     damage
                 );
@@ -32826,10 +32836,13 @@ float screenX =
         }
 
         // SKYDOOM_ROCKET_BLAST_OBJECTS
-        ApplySkyDoomRocketBlastToObjects(
+        ApplySkyDoomBlastToObjects(
             explosion,
             128.0f * doomToSkyrimScale,
-            doomToSkyrimScale
+            doomToSkyrimScale,
+            128.0f,
+            "rocket",
+            true
         );
 
 
@@ -33907,6 +33920,16 @@ float screenX =
                         pick.
                             rayInput.
                             filterInfo
+                    );
+
+                // SKYDOOM_PLASMA_BFG_OBJECTS: fly like an arrow, so bolts
+                // and balls strike what an arrow would, including things
+                // the player walks through, like hanging oil lamps.
+                pick.
+                    rayInput.
+                    filterInfo.
+                    SetCollisionLayer(
+                        RE::COL_LAYER::kProjectile
                     );
 
                 if (
@@ -37027,6 +37050,52 @@ void
             1.0f;
     };
 
+    /*
+        SKYDOOM_PLASMA_BFG_OBJECTS
+
+        Plasma bolts and BFG balls act on objects where they strike, like
+        rocket explosions (SKYDOOM_ROCKET_BLAST_OBJECTS), whether they hit
+        a wall, an object or an actor. They fly like arrows, so they strike
+        what an arrow would, hanging oil lamps included.
+
+        - A plasma bolt burns a small spot, DOOM's plasma ball radius
+          rounded up, with DOOM's plasma damage, 5 x (1..8). It breaks
+          webs, drops oil lamps and lights the oil or gas it touches.
+        - A BFG ball bursts like a rocket: 128 units, 128 damage at the
+          centre.
+
+        Neither busts doors; that stays with rockets. The BFG's tracer
+        spray hits actors only, as in DOOM. Main thread.
+    */
+    // DOOM units.
+    constexpr float
+        kSkyDoomPlasmaBurnRadius =
+            16.0f;
+
+    constexpr float
+        kSkyDoomBFGBurstRadius =
+            128.0f;
+
+    constexpr float
+        kSkyDoomBFGBurstDamage =
+            128.0f;
+
+    // DOOM's plasma damage, 5 x (1..8).
+    float RollSkyDoomPlasmaDamage()
+    {
+        static std::minstd_rand rng{
+            static_cast<std::uint32_t>(
+                GetTickCount64()
+            )
+        };
+
+        return
+            5.0f *
+            static_cast<float>(
+                std::uniform_int_distribution<int>{ 1, 8 }(rng)
+            );
+    }
+
     void ProcessSkyDoomBFGImpactsV14_2B(
         bool doomFresh
     )
@@ -37164,6 +37233,17 @@ void
                 trigger.position,
                 trigger.doomToSkyrimScale,
                 trigger.direction
+            );
+
+            // SKYDOOM_PLASMA_BFG_OBJECTS
+            ApplySkyDoomBlastToObjects(
+                trigger.position,
+                kSkyDoomBFGBurstRadius *
+                    trigger.doomToSkyrimScale,
+                trigger.doomToSkyrimScale,
+                kSkyDoomBFGBurstDamage,
+                "BFG",
+                false
             );
 
             /*
@@ -37528,6 +37608,17 @@ void
 
                 trigger.doomToSkyrimScale
 
+            );
+
+            // SKYDOOM_PLASMA_BFG_OBJECTS
+            ApplySkyDoomBlastToObjects(
+                trigger.position,
+                kSkyDoomPlasmaBurnRadius *
+                    trigger.doomToSkyrimScale,
+                trigger.doomToSkyrimScale,
+                RollSkyDoomPlasmaDamage(),
+                "plasma",
+                false
             );
 
 
