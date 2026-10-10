@@ -8,9 +8,21 @@ first. Each build is made from its `release/<version>` branch, and its
 Each section starts with a `Status:` line (how far the build has been
 tested), followed by the changes since the previous build.
 
-## v0.1.14-beta - 2026-10-10
+## v0.1.15-beta - 2026-10-10
 
 Status: In testing.
+
+- Changed: the minigame book is now found, not given. "Knee-Deep in the
+  Dead" waits in the boss chest at the end of Bleak Falls Barrow, beside
+  the Draugr who carries the Dragonstone. Characters that already have the
+  book keep it. If you are past that point or skip the main quest, use
+  Give me the book on the MCM Minigame page.
+
+## v0.1.14-beta - 2026-10-10
+
+Status: Tested on Skyrim 1.6.1170 (NGVO). DOOM's menu Save, Load and Quit
+work in the minigame; Options and New Game not tried yet. DOOM's Read This!
+screens list F-key shortcuts, which do not work in the minigame yet.
 
 - New: DOOM's own menu in the minigame. Esc (Start or B on a controller)
   opens it: move through it with your movement keys or stick, Use or Fire
