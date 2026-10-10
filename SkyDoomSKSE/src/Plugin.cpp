@@ -10235,6 +10235,20 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         kSkyDoomArcadeRecordVersion =
             1;
 
+    // Whether the book has been put in the Bleak Falls Barrow chest (or
+    // given from the MCM) for this character.
+    constexpr std::uint32_t
+        kSkyDoomBookRecord =
+            'BOOK';
+
+    constexpr std::uint32_t
+        kSkyDoomBookRecordVersion =
+            1;
+
+    // Main thread; saved in the co-save.
+    bool g_arcadeBookPlaced =
+        false;
+
     constexpr const char*
         kSkyDoomEpisodeNames[] = {
             "Knee-Deep in the Dead",
@@ -10269,6 +10283,22 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
                 "SkyDoom arcade: could not save minigame progress"
             );
         }
+
+        const std::int32_t bookPlaced =
+            g_arcadeBookPlaced ? 1 : 0;
+
+        if (
+            !a_intfc->WriteRecord(
+                kSkyDoomBookRecord,
+                kSkyDoomBookRecordVersion,
+                bookPlaced
+            )
+        )
+        {
+            logger::error(
+                "SkyDoom arcade: could not save the book state"
+            );
+        }
     }
 
     void LoadSkyDoomArcadeProgress(
@@ -10277,6 +10307,9 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
     {
         g_arcadeProgress =
             SkyDoomArcadeProgress{};
+
+        g_arcadeBookPlaced =
+            false;
 
         std::uint32_t type =
             0;
@@ -10295,6 +10328,24 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
             )
         )
         {
+            if (
+                type == kSkyDoomBookRecord &&
+                version == kSkyDoomBookRecordVersion &&
+                length == sizeof(std::int32_t)
+            )
+            {
+                std::int32_t bookPlaced =
+                    0;
+
+                if (a_intfc->ReadRecordData(bookPlaced) == sizeof(bookPlaced))
+                {
+                    g_arcadeBookPlaced =
+                        bookPlaced != 0;
+                }
+
+                continue;
+            }
+
             if (
                 type != kSkyDoomArcadeRecord ||
                 version != kSkyDoomArcadeRecordVersion ||
@@ -10335,6 +10386,9 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
     {
         g_arcadeProgress =
             SkyDoomArcadeProgress{};
+
+        g_arcadeBookPlaced =
+            false;
     }
 
     // The book open in the Book Menu is the arcade book.
@@ -12011,7 +12065,102 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         }
     };
 
-    // On every load and new game: the player always has the book.
+    /*
+        The book is found, not given: the first time the boss chest at the
+        end of Bleak Falls Barrow is loaded (the BossContainer of
+        BleakFallsBarrowLocation, beside the Draugr Overlord who carries
+        the Dragonstone), the book is put in it, once per character
+        (co-save record 'BOOK'). Characters that already have the book are
+        left alone. The MCM Minigame page has a "Give me the book" button
+        for characters past that point.
+    */
+    constexpr RE::FormID
+        kSkyDoomBookChestId =
+            0x000376EF;
+
+    bool SkyDoomPlayerHasArcadeBook(
+        RE::TESObjectBOOK* a_book
+    )
+    {
+        auto* player =
+            RE::PlayerCharacter::GetSingleton();
+
+        if (
+            !player ||
+            !a_book
+        )
+        {
+            return false;
+        }
+
+        const auto counts =
+            player->GetInventoryCounts(
+                [a_book](RE::TESBoundObject& a_object)
+                {
+                    return &a_object == a_book;
+                }
+            );
+
+        return
+            !counts.empty() &&
+            counts.begin()->second > 0;
+    }
+
+    // UpdateSharedState, every 50 ms on the main thread.
+    void PlaceSkyDoomArcadeBook()
+    {
+        if (g_arcadeBookPlaced)
+        {
+            return;
+        }
+
+        auto* chest =
+            RE::TESForm::LookupByID<RE::TESObjectREFR>(
+                kSkyDoomBookChestId
+            );
+
+        if (
+            !chest ||
+            !chest->Is3DLoaded() ||
+            chest->IsDisabled()
+        )
+        {
+            return;
+        }
+
+        auto* book =
+            GetSkyDoomArcadeBook();
+
+        if (!book)
+        {
+            return;
+        }
+
+        g_arcadeBookPlaced =
+            true;
+
+        if (SkyDoomPlayerHasArcadeBook(book))
+        {
+            logger::info(
+                "SkyDoom arcade: Bleak Falls Barrow chest loaded; the player already has the book"
+            );
+
+            return;
+        }
+
+        chest->AddObjectToContainer(
+            book,
+            nullptr,
+            1,
+            nullptr
+        );
+
+        logger::info(
+            "SkyDoom arcade: book placed in the Bleak Falls Barrow chest"
+        );
+    }
+
+    // The MCM button (SkyDoom_MCM.GiveBook), on the main thread.
     void GiveSkyDoomArcadeBook()
     {
         auto* book =
@@ -12028,19 +12177,16 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
             return;
         }
 
-        const auto counts =
-            player->GetInventoryCounts(
-                [book](RE::TESBoundObject& a_object)
-                {
-                    return &a_object == book;
-                }
+        // No second copy in the chest later.
+        g_arcadeBookPlaced =
+            true;
+
+        if (SkyDoomPlayerHasArcadeBook(book))
+        {
+            RE::SendHUDMessage::ShowHUDMessage(
+                "You already have Knee-Deep in the Dead."
             );
 
-        if (
-            !counts.empty() &&
-            counts.begin()->second > 0
-        )
-        {
             return;
         }
 
@@ -12052,12 +12198,24 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         );
 
         RE::SendHUDMessage::ShowHUDMessage(
-            "A strange book is in your pack: Knee-Deep in the Dead."
+            "Knee-Deep in the Dead was added to your inventory."
         );
 
         logger::info(
-            "SkyDoom arcade: book given to the player"
+            "SkyDoom arcade: book given from the MCM"
         );
+    }
+
+    void SkyDoomGiveBookNative(
+        RE::TESQuest*
+    )
+    {
+        if (auto* tasks = SKSE::GetTaskInterface())
+        {
+            tasks->AddTask(
+                GiveSkyDoomArcadeBook
+            );
+        }
     }
 
     void RegisterSkyDoomArcade()
@@ -44639,6 +44797,7 @@ SKSE::log::info(
 	{
 		// SKYDOOM_ARCADE
 		UpdateSkyDoomArcade();
+		PlaceSkyDoomArcadeBook();
 
 		if (!g_state) {
 			return;
@@ -44904,6 +45063,12 @@ SKSE::log::info(
 			"SkyDoom_MCM",
 			SkyDoomOnConfigClose);
 
+		// SKYDOOM_ARCADE: the Minigame page's "Give me the book" button.
+		a_vm->RegisterFunction(
+			"GiveBook",
+			"SkyDoom_MCM",
+			SkyDoomGiveBookNative);
+
 		return true;
 	}
 
@@ -45060,13 +45225,6 @@ SKSEPluginLoad(
 
 					OnDataLoaded();
 
-					break;
-				// SKYDOOM_ARCADE: the player always has the book.
-				case SKSE::MessagingInterface::kPostLoadGame:
-				case SKSE::MessagingInterface::kNewGame:
-					if (auto* tasks = SKSE::GetTaskInterface()) {
-						tasks->AddTask(GiveSkyDoomArcadeBook);
-					}
 					break;
 
 				default:
