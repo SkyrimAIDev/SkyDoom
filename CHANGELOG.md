@@ -8,6 +8,23 @@ first. Each build is made from its `release/<version>` branch, and its
 Each section starts with a `Status:` line (how far the build has been
 tested), followed by the changes since the previous build.
 
+## v0.1.12-beta - 2026-10-10
+
+Status: In testing.
+
+- New: the DOOM minigame, first test version. A book, "Knee-Deep in the
+  Dead", is added to your inventory. Read it and close it to be pulled into
+  real DOOM, full screen, with Skyrim paused: E1M1 with monsters, and DOOM
+  weapons and items of its own (separate from SkyDoom combat). Finish the
+  level to return to Skyrim where you stood.
+- Minigame controls: your Skyrim movement keys, Activate (use), Sprint or
+  Run, Attack and the SkyDoom Fire and weapon keys. The mouse or right
+  stick turns, the left stick moves, and Tab, Quick Map or the gamepad Back
+  button shows the automap. Emergency exit: hold Toggle DOOM mode (F11) for
+  3 seconds.
+- Limits of this test: the minigame always starts at E1M1 (saved progress
+  comes next), and Skyrim's music keeps playing under DOOM's.
+
 ## v0.1.11-beta - 2026-10-09
 
 Status: In testing. Rockets bust doors opened every door tried so far;
