@@ -13554,9 +13554,12 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         38586) sends its own. The source is the same stand-in weapon the
         native hit uses.
     */
+    // a_source: the form OnHit reports as akSource; 0 for the stand-in
+    // weapon of the DOOM weapon in hand.
     void SendSkyDoomHitEvent(
-        RE::Actor* a_target,
-        RE::PlayerCharacter* a_player
+        RE::TESObjectREFR* a_target,
+        RE::PlayerCharacter* a_player,
+        RE::FormID a_source = 0
     )
     {
         auto* events =
@@ -13574,7 +13577,9 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         const RE::TESHitEvent event(
             a_target,
             a_player,
-            SkyDoomStandInWeaponId(),
+            a_source != 0 ?
+                a_source :
+                SkyDoomStandInWeaponId(),
             0,
             RE::TESHitEvent::Flag::kNone
         );
@@ -14474,12 +14479,16 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 
     // Casts a ray between two world points with the player's collision
     // filter, so it hits what the player would bump into (walls, doors,
-    // chests, webs). Returns true if it hit anything; a_hitRef is the
-    // reference hit, if the collidable belongs to one. Main thread.
+    // chests, webs). With a_asProjectile the ray uses the projectile
+    // layer instead (SKYDOOM_OBJECT_HITS), so it hits what an arrow would,
+    // including things the player walks through, like hanging oil lamps.
+    // Returns true if it hit anything; a_hitRef is the reference hit, if
+    // the collidable belongs to one. Main thread.
     bool PickSkyDoomRay(
         const RE::NiPoint3& a_from,
         const RE::NiPoint3& a_to,
-        RE::TESObjectREFR*& a_hitRef
+        RE::TESObjectREFR*& a_hitRef,
+        bool a_asProjectile = false
     )
     {
         a_hitRef =
@@ -14547,6 +14556,15 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
             pick.rayInput.filterInfo
         );
 
+        // Keep the player's system group (never hit the player), swap the
+        // collision layer for the projectile layer.
+        if (a_asProjectile)
+        {
+            pick.rayInput.filterInfo.SetCollisionLayer(
+                RE::COL_LAYER::kProjectile
+            );
+        }
+
         if (!world->PickObject(pick))
         {
             return false;
@@ -14606,7 +14624,8 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
                 forward * kSkyDoomAimRayStartOffset,
                 cameraWorld.translate +
                 forward * a_range,
-                ref
+                ref,
+                true
             ) ||
             !ref ||
             ref == player ||
@@ -14634,6 +14653,13 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         {
             return;
         }
+
+        // SKYDOOM_OBJECT_HITS: like an arrow, the bullet hits the object,
+        // so its scripts get OnHit (a hanging oil lamp drops, and so on).
+        SendSkyDoomHitEvent(
+            ref,
+            RE::PlayerCharacter::GetSingleton()
+        );
 
         auto* base =
             ref->GetBaseObject();
@@ -31853,6 +31879,16 @@ float screenX =
         kSkyDoomRocketBlastSearchSlack =
             300.0f;
 
+    // Objects one explosion visits (OnHit, damage, door busting).
+    constexpr std::size_t
+        kSkyDoomRocketBlastMaxObjects =
+            64;
+
+    // Torch01: what fire traps (TrapExplosiveGas) take as fire on OnHit.
+    constexpr RE::FormID
+        kSkyDoomBlastFireSourceId =
+            0x0001D4EC;
+
     /*
         SKYDOOM_DOOR_BUSTER
 
@@ -32398,28 +32434,12 @@ float screenX =
                     return RE::BSContainer::ForEachResult::kContinue;
                 }
 
-                auto* base =
-                    a_ref->GetBaseObject();
-
-                const bool bustable =
-                    bustDoors &&
-                    base &&
-                    (
-                        base->Is(RE::FormType::Door) ||
-                        base->Is(RE::FormType::Activator)
-                    );
-
-                const auto* destructible =
-                    base ?
-                        base->As<RE::BGSDestructibleObjectForm>() :
-                        nullptr;
-
-                if (
-                    !bustable &&
-                    !(destructible && destructible->data)
-                )
+                // SKYDOOM_OBJECT_HITS: every object the blast reaches hears
+                // OnHit, so hit-triggered traps (hanging oil lamps and the
+                // like) go off. At most kSkyDoomRocketBlastMaxObjects.
+                if (hits.size() >= kSkyDoomRocketBlastMaxObjects)
                 {
-                    return RE::BSContainer::ForEachResult::kContinue;
+                    return RE::BSContainer::ForEachResult::kStop;
                 }
 
                 auto* node =
@@ -32449,7 +32469,9 @@ float screenX =
 
                 // Like DOOM's P_RadiusAttack, walls stop the blast. The
                 // object's own linked collision (a barricade's collision
-                // box) does not count as a wall.
+                // box) does not count as a wall. Aim a little above the
+                // object's centre: flat things on the floor, like oil
+                // slicks, would otherwise be hidden by the floor itself.
                 RE::TESObjectREFR* blocker =
                     nullptr;
 
@@ -32457,7 +32479,7 @@ float screenX =
                     gap > 0.0f &&
                     PickSkyDoomRay(
                         a_explosion,
-                        bound.center,
+                        bound.center + RE::NiPoint3{ 0.0f, 0.0f, 16.0f },
                         blocker
                     ) &&
                     blocker != a_ref &&
@@ -32490,6 +32512,15 @@ float screenX =
         {
             auto* base =
                 hit.ref->GetBaseObject();
+
+            // SKYDOOM_OBJECT_HITS: a rocket blast is fire. Gas pockets and
+            // oil pools (TrapExplosiveGas) ignite on a hit "by" a torch,
+            // so name Torch01 as the source; other scripts just see a hit.
+            SendSkyDoomHitEvent(
+                hit.ref,
+                player,
+                kSkyDoomBlastFireSourceId
+            );
 
             const auto* destructible =
                 base ?
