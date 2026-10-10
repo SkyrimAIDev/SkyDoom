@@ -8,9 +8,21 @@ first. Each build is made from its `release/<version>` branch, and its
 Each section starts with a `Status:` line (how far the build has been
 tested), followed by the changes since the previous build.
 
-## v0.1.17-beta - 2026-10-10
+## v0.1.18-beta - 2026-10-10
 
 Status: In testing.
+
+- Fixed: DOOM music kept playing during dialogue and drowned out what
+  people said. DOOM now goes quiet whenever its HUD is hidden (dialogue and
+  other menus): its music pauses and picks up where it left off, a raised
+  chainsaw stops idling, and Skyrim's music and effects return to your own
+  volumes.
+
+## v0.1.17-beta - 2026-10-10
+
+Status: Tested on Skyrim 1.6.1170 (NGVO). After killing the giant at
+Pelagia Farm with DOOM weapons, the Companions gave the "you helped"
+dialogue. DOOM music drowned out the dialogue (fixed in v0.1.18-beta).
 
 - Fixed: Skyrim did not know DOOM hits were yours. Quests that watch who
   hits an enemy missed them; for example, the Companions said you did not
