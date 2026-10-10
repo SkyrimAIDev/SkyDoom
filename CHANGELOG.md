@@ -10,7 +10,8 @@ tested), followed by the changes since the previous build.
 
 ## v0.1.12-beta - 2026-10-10
 
-Status: In testing.
+Status: Tested on Skyrim 1.6.1170 (NGVO). The book pulled the player into
+E1M1, which played well, and finishing the level returned to Skyrim.
 
 - New: the DOOM minigame, first test version. A book, "Knee-Deep in the
   Dead", is added to your inventory. Read it and close it to be pulled into
