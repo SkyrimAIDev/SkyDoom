@@ -50,9 +50,9 @@ slicks themselves (fixed in v0.1.21-beta).
 
 ## v0.1.19-beta - 2026-10-10
 
-Status: In testing on Skyrim 1.6.1170 (NGVO). DOOM's F-key shortcuts work in
-the minigame. Hanging oil lamps did not react to DOOM guns (fixed in
-v0.1.20-beta).
+Status: In testing on Skyrim 1.6.1170 (NGVO). DOOM guns train Archery, and
+DOOM's F-key shortcuts work in the minigame. Hanging oil lamps did not react
+to DOOM guns (fixed in v0.1.20-beta).
 
 - New: DOOM weapons train your Skyrim skills: guns train Archery, the fist
   and chainsaw train One-Handed. DOOM fires far faster than Skyrim
