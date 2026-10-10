@@ -8,9 +8,29 @@ first. Each build is made from its `release/<version>` branch, and its
 Each section starts with a `Status:` line (how far the build has been
 tested), followed by the changes since the previous build.
 
-## v0.1.13-beta - 2026-10-10
+## v0.1.14-beta - 2026-10-10
 
 Status: In testing.
+
+- New: DOOM's own menu in the minigame. Esc (Start or B on a controller)
+  opens it: move through it with your movement keys or stick, Use or Fire
+  selects, Esc closes it. Save Game and Load Game are DOOM's own saves, for
+  stopping mid-level and picking up exactly there later (an empty slot is
+  named after the level, since there is no keyboard to type a name). Quit
+  Game returns you to Skyrim; the book then starts you at the beginning of
+  that level with what you carried into it. Options changes (sound, screen
+  size and so on) are kept between visits and do not affect SkyDoom
+  combat. DOOM saves and settings are kept in Documents\My Games\Skyrim
+  Special Edition\SkyDoom\Minigame, outside the game and mod folders.
+- Fixed: in v0.1.13-beta, Esc or B during play walked you backwards
+  instead of doing nothing, and walking backwards at a level end answered
+  "no". (Two minigame actions shared one code.)
+
+## v0.1.13-beta - 2026-10-10
+
+Status: Tested on Skyrim 1.6.1170 (NGVO). Played through several levels
+going on between them, with no real issues; the higher levels take a long
+time, hence DOOM's menu in v0.1.14-beta.
 
 - New: the DOOM minigame goes on. At the end of each level DOOM asks
   whether to go on: Use plays the next level, Esc (B on a controller)
