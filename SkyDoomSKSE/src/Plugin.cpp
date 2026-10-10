@@ -7635,10 +7635,18 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 			break;
 		}
 
+		// SKYDOOM_FOCUS_AUDIO: in dialogue and other menus the DOOM HUD is
+		// hidden (SkyDoomHudVisible), so DOOM goes quiet as well: its music
+		// pauses (and resumes where it left off) and a raised chainsaw stops
+		// idling. In-game report: DOOM music drowned out the Companions'
+		// dialogue. SkyDoom's own combat state is unchanged.
+		const bool focus =
+			g_skyDoomGameplayFocus;
+
 		if (g_state) {
 			g_state->skyrim.mode_flags =
-				(combat ? SKYDOOM_MODE_COMBAT : 0u) |
-				(music ? SKYDOOM_MODE_MUSIC : 0u);
+				(combat && focus ? SKYDOOM_MODE_COMBAT : 0u) |
+				(music && focus ? SKYDOOM_MODE_MUSIC : 0u);
 		}
 	}
 
@@ -12440,9 +12448,11 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
             }
         }
 
-        // Skyrim's own sound while in DOOM combat.
+        // Skyrim's own sound while in DOOM combat, and only while gameplay
+        // has focus: in dialogue and menus the player's volumes come back.
         const bool combat =
             g_skyDoomCombat &&
+            g_skyDoomGameplayFocus &&
             !SkyDoomArcadeActive();
 
         const bool doomMusicPlaying =

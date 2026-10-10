@@ -62,11 +62,11 @@
       "cursorFillMode": "topToBottom",
       "content": [
         {"text": "DOOM sound in SkyDoom combat", "type": "header"},
-        {"id": "iMusicMode:General", "text": "DOOM music", "type": "enum", "help": "In DOOM combat: DOOM music plays while fighting as DOOM and Skyrim music the rest of the time. Always: whenever SkyDoom is enabled. Off: never. Toggle DOOM music (F10) can still mute it.", "valueOptions": {"options": ["In DOOM combat", "Always", "Off"], "sourceType": "ModSettingInt"}},
+        {"id": "iMusicMode:General", "text": "DOOM music", "type": "enum", "help": "In DOOM combat: DOOM music plays while fighting as DOOM and Skyrim music the rest of the time. Always: whenever SkyDoom is enabled. Off: never. It pauses during dialogue and menus. Toggle DOOM music (F10) can still mute it.", "valueOptions": {"options": ["In DOOM combat", "Always", "Off"], "sourceType": "ModSettingInt"}},
         {"id": "iDoomSfxVolume:Audio", "text": "DOOM sound effects volume", "type": "slider", "help": "Volume of DOOM weapon, pickup and pain sounds in SkyDoom combat, on DOOM's 0-15 scale. The minigame sets its own volume in DOOM's Options menu. Default: 15.", "valueOptions": {"min": 0, "max": 15, "step": 1, "formatString": "{0}", "sourceType": "ModSettingInt"}},
         {"id": "iDoomMusicVolume:Audio", "text": "DOOM music volume", "type": "slider", "help": "Volume of DOOM music in SkyDoom combat, on DOOM's 0-15 scale. Default: 8.", "valueOptions": {"min": 0, "max": 15, "step": 1, "formatString": "{0}", "sourceType": "ModSettingInt"}},
         {"text": "Skyrim sound in DOOM combat", "type": "header"},
-        {"id": "bMuteSkyrimMusic:Audio", "text": "Mute Skyrim music under DOOM music", "type": "toggle", "help": "While you fight as DOOM and DOOM music is playing, Skyrim's music is muted so the two do not clash. Your Skyrim music volume comes back as soon as DOOM combat ends.", "valueOptions": {"sourceType": "ModSettingBool"}},
+        {"id": "bMuteSkyrimMusic:Audio", "text": "Mute Skyrim music under DOOM music", "type": "toggle", "help": "While you fight as DOOM and DOOM music is playing, Skyrim's music is muted so the two do not clash. Your Skyrim music volume comes back as soon as DOOM combat ends, and during dialogue and menus.", "valueOptions": {"sourceType": "ModSettingBool"}},
         {"id": "iSkyrimEffectsInCombat:Audio", "text": "Skyrim effects volume", "type": "slider", "help": "Skyrim's sound effects while you fight as DOOM, as a share of your Effects volume setting. Lower it if Skyrim drowns out DOOM's weapons. Your Effects volume comes back as soon as DOOM combat ends. Default: 100%.", "valueOptions": {"min": 0, "max": 100, "step": 5, "formatString": "{0}%", "sourceType": "ModSettingInt"}}
       ]
     },
