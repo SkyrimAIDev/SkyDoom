@@ -20,6 +20,7 @@
 #include "i_video.h"
 #include "st_stuff.h"
 #include "m_argv.h"
+#include "m_config.h"
 #include "m_controls.h"
 #include "m_menu.h"
 #include "r_main.h"
@@ -457,6 +458,7 @@ static void SkyDoom_CycleWeapon(int direction)
 }
 
 static void SkyDoom_ConsumeInputRing(void);
+static void SkyDoom_ArcadeReleaseAll(void);
 
 /*
     SKYDOOM_ARCADE
@@ -546,7 +548,7 @@ static void SkyDoom_ArcadeAction(unsigned int action, int down)
 
     /*
         While the level-end question is up, Use or Fire answers yes and
-        Back answers no. Nothing else reaches DOOM: its Use key (space)
+        Menu answers no. Nothing else reaches DOOM: its Use key (space)
         would also answer the question.
     */
     if (skydoom_arcade_prompt)
@@ -557,10 +559,72 @@ static void SkyDoom_ArcadeAction(unsigned int action, int down)
             SkyDoom_ArcadePostKey(key_menu_confirm, 1);
             SkyDoom_ArcadePostKey(key_menu_confirm, 0);
         }
-        else if (down && action == SKYDOOM_ARCADE_BACK)
+        else if (down && action == SKYDOOM_ARCADE_MENU)
         {
             SkyDoom_ArcadePostKey(key_menu_abort, 1);
             SkyDoom_ArcadePostKey(key_menu_abort, 0);
+        }
+
+        return;
+    }
+
+    /*
+        DOOM's menu (Menu: Esc, Start or B): moving forward and back moves
+        through it, left and right change sliders, Use or Fire selects and
+        Menu closes it. Its yes/no questions take Use or Fire for yes and
+        Menu for no. Menus act on presses only.
+    */
+    if (menuactive)
+    {
+        int key = 0;
+
+        if (!down)
+        {
+            return;
+        }
+
+        if (messageToPrint)
+        {
+            if (action == SKYDOOM_ARCADE_USE || action == SKYDOOM_ARCADE_FIRE)
+            {
+                key = key_menu_confirm;
+            }
+            else if (action == SKYDOOM_ARCADE_MENU)
+            {
+                key = key_menu_abort;
+            }
+        }
+        else
+        {
+            switch (action)
+            {
+                case SKYDOOM_ARCADE_FORWARD:      key = key_menu_up; break;
+                case SKYDOOM_ARCADE_BACK:         key = key_menu_down; break;
+                case SKYDOOM_ARCADE_STRAFE_LEFT:
+                case SKYDOOM_ARCADE_TURN_LEFT:    key = key_menu_left; break;
+                case SKYDOOM_ARCADE_STRAFE_RIGHT:
+                case SKYDOOM_ARCADE_TURN_RIGHT:   key = key_menu_right; break;
+                case SKYDOOM_ARCADE_USE:
+                case SKYDOOM_ARCADE_FIRE:         key = key_menu_forward; break;
+                case SKYDOOM_ARCADE_MENU:         key = key_menu_activate; break;
+                default:                          break;
+            }
+        }
+
+        SkyDoom_ArcadePostKey(key, 1);
+        SkyDoom_ArcadePostKey(key, 0);
+
+        return;
+    }
+
+    /* In play, Menu opens DOOM's menu. Let go of held keys first. */
+    if (action == SKYDOOM_ARCADE_MENU)
+    {
+        if (down)
+        {
+            SkyDoom_ArcadeReleaseAll();
+            SkyDoom_ArcadePostKey(key_menu_activate, 1);
+            SkyDoom_ArcadePostKey(key_menu_activate, 0);
         }
 
         return;
@@ -786,12 +850,50 @@ static void SkyDoom_ArcadePromptAnswer(int key)
 
     skydoom_arcade_finished = 1;
 
+    /* Keep option changes made in DOOM's menu. */
+    M_SaveDefaults();
+
     SkyDoom_PushCombatEvent(
         SKYDOOM_COMBAT_EVENT_ARCADE,
         SKYDOOM_ARCADE_STATUS_RETURN,
         0,
         0,
         0);
+}
+
+int SkyDoom_ArcadeModeActive(void)
+{
+    return skydoom_arcade_mode;
+}
+
+/*
+    M_QuitResponse: Quit Game in DOOM's menu returns to Skyrim. The next
+    visit starts at the beginning of this level (the last level end
+    saved), or the player loads a DOOM save made mid-level.
+    Returns 1 when the minigame handled the quit.
+*/
+int SkyDoom_ArcadeQuit(void)
+{
+    if (!skydoom_arcade_mode || skydoom_state == NULL)
+    {
+        return 0;
+    }
+
+    if (!skydoom_arcade_finished)
+    {
+        skydoom_arcade_finished = 1;
+        SkyDoom_ArcadeReleaseAll();
+        M_SaveDefaults();
+
+        SkyDoom_PushCombatEvent(
+            SKYDOOM_COMBAT_EVENT_ARCADE,
+            SKYDOOM_ARCADE_STATUS_RETURN,
+            0,
+            0,
+            0);
+    }
+
+    return 1;
 }
 
 /* Called once per tic, before the published state is refreshed. */
@@ -833,6 +935,12 @@ static void SkyDoom_ArcadeUpdate(void)
     if (!SkyDoom_SkyrimIsFresh())
     {
         SkyDoom_ArcadeReleaseAll();
+    }
+
+    /* In DOOM's menu, mouse motion would move its sliders. */
+    if (menuactive)
+    {
+        skydoom_arcade_turn = 0;
     }
 
     if (skydoom_arcade_turn != 0)
@@ -960,6 +1068,7 @@ void SkyDoom_ArcadeEpisodeDone(void)
 
     skydoom_arcade_finished = 1;
     SkyDoom_ArcadeReleaseAll();
+    M_SaveDefaults();
     SkyDoom_PushCombatEvent(
         SKYDOOM_COMBAT_EVENT_ARCADE,
         SKYDOOM_ARCADE_STATUS_EPISODE_DONE,
@@ -4737,6 +4846,18 @@ int SkyDoom_ArcadeLevelDone(int episode, int next_map)
 
 void SkyDoom_ArcadeEpisodeDone(void)
 {
+}
+
+
+int SkyDoom_ArcadeModeActive(void)
+{
+    return 0;
+}
+
+
+int SkyDoom_ArcadeQuit(void)
+{
+    return 0;
 }
 
 

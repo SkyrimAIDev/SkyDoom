@@ -180,6 +180,12 @@ void SkyDoom_ReportRocketDamageRequest(
 int SkyDoom_ArcadeLevelDone(int episode, int next_map);
 void SkyDoom_ArcadeEpisodeDone(void);
 
+/* SKYDOOM_ARCADE: running as the minigame (-skydoomarcade). */
+int SkyDoom_ArcadeModeActive(void);
+
+/* M_QuitResponse: Quit Game returns to Skyrim; returns 1 if handled. */
+int SkyDoom_ArcadeQuit(void);
+
 
 #endif
 

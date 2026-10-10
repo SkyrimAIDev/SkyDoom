@@ -62,5 +62,8 @@ extern int screenblocks;
 extern boolean inhelpscreens;
 extern int showMessages;
 
+// SKYDOOM_ARCADE: a message box (often a yes/no question) is on screen.
+extern int messageToPrint;
+
 
 #endif

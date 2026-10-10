@@ -1530,6 +1530,14 @@ void D_DoomMain (void)
 
     // Load configuration files before initialising other subsystems.
     DEH_printf("M_LoadDefaults: Load system defaults.\n");
+    // SKYDOOM_ARCADE: the minigame keeps its own settings, so changing
+    // them in its menu does not affect the hidden combat guest.
+    if (SkyDoom_ArcadeModeActive())
+    {
+        M_SetConfigFilenames("skydoom-minigame-default.cfg",
+                             "skydoom-minigame.cfg");
+    }
+    else
     M_SetConfigFilenames("default.cfg", PROGRAM_PREFIX "doom.cfg");
     D_BindVariables();
     M_LoadDefaults();

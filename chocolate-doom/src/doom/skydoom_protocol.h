@@ -174,7 +174,7 @@
 #define SKYDOOM_ARCADE_NEXT_WEAPON  17u
 #define SKYDOOM_ARCADE_PREV_WEAPON  18u
 #define SKYDOOM_ARCADE_AUTOMAP      19u
-#define SKYDOOM_ARCADE_BACK         20u /* answers "no" to the level-end question */
+#define SKYDOOM_ARCADE_MENU         20u /* opens DOOM's menu; answers "no" to its questions */
 #define SKYDOOM_ARCADE_ACTION_COUNT 21u
 
 /*

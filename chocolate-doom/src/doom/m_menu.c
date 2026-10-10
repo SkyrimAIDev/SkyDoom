@@ -60,6 +60,7 @@
 #include "sounds.h"
 
 #include "m_menu.h"
+#include "skydoom_shared.h"
 
 
 //
@@ -676,7 +677,8 @@ void M_SaveSelect(int choice)
     {
         savegamestrings[choice][0] = 0;
 
-        if (joypadSave)
+        // SKYDOOM_ARCADE: no keyboard to type a name, so use the map's.
+        if (joypadSave || SkyDoom_ArcadeModeActive())
         {
             SetDefaultSaveName(choice);
         }
@@ -1095,6 +1097,9 @@ void M_QuitResponse(int key)
 {
     if (key != key_menu_confirm)
 	return;
+    // SKYDOOM_ARCADE: the minigame returns to Skyrim instead of quitting.
+    if (SkyDoom_ArcadeQuit())
+	return;
     if (!netgame)
     {
 	if (gamemode == commercial)
@@ -1130,6 +1135,14 @@ static const char *M_SelectEndMessage(void)
 
 void M_QuitDOOM(int choice)
 {
+    // SKYDOOM_ARCADE: quitting the minigame returns to Skyrim.
+    if (SkyDoom_ArcadeModeActive())
+    {
+        M_snprintf(endstring, sizeof(endstring),
+                   "%s\n\n(press use to return to skyrim.)",
+                   DEH_String(M_SelectEndMessage()));
+    }
+    else
     DEH_snprintf(endstring, sizeof(endstring), "%s\n\n" DOSY,
                  DEH_String(M_SelectEndMessage()));
 
