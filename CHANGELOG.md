@@ -8,6 +8,24 @@ first. Each build is made from its `release/<version>` branch, and its
 Each section starts with a `Status:` line (how far the build has been
 tested), followed by the changes since the previous build.
 
+## v0.1.19-beta - 2026-10-10
+
+Status: In testing.
+
+- New: DOOM weapons train your Skyrim skills: guns train Archery, the fist
+  and chainsaw train One-Handed. DOOM fires far faster than Skyrim
+  weapons, so a skill gains experience at most once every 0.75 seconds,
+  worth about one ordinary Skyrim hit. On by default; MCM Balance page:
+  DOOM weapons train skills, and Skill experience rate (0.25x-4x).
+- Changed: Skyrim now sees DOOM gun hits as hits from a bow (a hunting
+  bow), and fist and chainsaw hits as hits from a dagger, as before. This
+  sets the impact effects and what scripts are told hit them.
+- New: DOOM's F-key shortcuts work in the minigame, as its Read This!
+  screens list them: F1 help, F2 save, F3 load, F4 sound volume, F5 detail,
+  F6 quicksave, F7 end game, F8 messages, F9 quickload, F10 quit, F11
+  gamma (unless F11 is your Toggle DOOM mode key, which stays the
+  emergency exit).
+
 ## v0.1.18-beta - 2026-10-10
 
 Status: Tested on Skyrim 1.6.1170 (NGVO). The Companions' dialogue is clear;
