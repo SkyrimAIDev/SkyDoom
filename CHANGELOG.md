@@ -8,6 +8,22 @@ first. Each build is made from its `release/<version>` branch, and its
 Each section starts with a `Status:` line (how far the build has been
 tested), followed by the changes since the previous build.
 
+## v0.1.13-beta - 2026-10-10
+
+Status: In testing.
+
+- New: the DOOM minigame goes on. At the end of each level DOOM asks
+  whether to go on: Use plays the next level, Esc (B on a controller)
+  returns you to Skyrim. Your progress (the next level, and the health,
+  armour, weapons, ammo and backpack you carry into it) is saved with your
+  Skyrim save, and reading the book again continues from there. After an
+  episode's ending you return to Skyrim and the book continues with the
+  next episode, starting fresh as in DOOM (all four episodes of The
+  Ultimate DOOM).
+- New: MCM Minigame page: difficulty (default Hurt me plenty) and mouse
+  sensitivity.
+- Changed: Skyrim's music is muted while you play the minigame.
+
 ## v0.1.12-beta - 2026-10-10
 
 Status: Tested on Skyrim 1.6.1170 (NGVO). The book pulled the player into
