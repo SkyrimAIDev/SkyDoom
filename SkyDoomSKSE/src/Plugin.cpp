@@ -13141,30 +13141,45 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 
 
 
+        /*
+            SKYDOOM_HIT_EVENT: combat plugins (Precision and the like) hook
+            this same call, so in a modded game it can point into another
+            plugin's trampoline instead of the game's processor. A target
+            outside the game's code is such a hook: the game's own
+            processor is still at ID 38586, so SkyDoom calls it directly
+            (without that plugin's extra handling). A CALL into some other
+            game function, or no CALL at all, means an unknown game build,
+            and the DoDamage fallback stays.
+        */
         if (
-
-            code[0] !=
-
-                0xE8 ||
-
-            actualTarget !=
-
-                expectedTarget
-
+            code[0] != 0xE8 ||
+            actualTarget != expectedTarget
         )
-
         {
+            const auto gameCode =
+                REL::Module::get().segment(
+                    REL::Segment::textx
+                );
 
-            SKSE::log::warn(
+            const bool hookedByPlugin =
+                code[0] == 0xE8 &&
+                (
+                    actualTarget < gameCode.address() ||
+                    actualTarget >= gameCode.address() + gameCode.size()
+                );
 
-                "[skydoomskse] Native HitData pipeline validation failed. DoDamage fallback will be used."
+            if (!hookedByPlugin)
+            {
+                SKSE::log::warn(
+                    "[skydoomskse] Native HitData pipeline validation failed. DoDamage fallback will be used."
+                );
 
+                return;
+            }
+
+            SKSE::log::info(
+                "[skydoomskse] Skyrim's hit processor call is hooked by another plugin; SkyDoom calls the game's processor (ID 38586) directly."
             );
-
-
-
-            return;
-
         }
 
 
@@ -13372,6 +13387,47 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 
 
 
+
+    /*
+        SKYDOOM_HIT_EVENT
+
+        Actor::DoDamage, the fallback when Skyrim's native hit processor
+        cannot be used, lowers health with the player as the source but
+        raises no TESHitEvent, so Papyrus OnHit never saw DOOM hits (the
+        Companions at the Pelagia Farm giant decided the player had not
+        helped). The fallback raises it here; the native processor (ID
+        38586) sends its own. The source is the same stand-in weapon the
+        native hit uses.
+    */
+    void SendSkyDoomHitEvent(
+        RE::Actor* a_target,
+        RE::PlayerCharacter* a_player
+    )
+    {
+        auto* events =
+            RE::ScriptEventSourceHolder::GetSingleton();
+
+        if (
+            !events ||
+            !a_target ||
+            !a_player
+        )
+        {
+            return;
+        }
+
+        const RE::TESHitEvent event(
+            a_target,
+            a_player,
+            0x0001397E,
+            0,
+            RE::TESHitEvent::Flag::kNone
+        );
+
+        events->SendEvent(
+            &event
+        );
+    }
 
     bool ApplySkyDoomNativePistolHit(
 
@@ -15915,6 +15971,17 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 
         {
 
+            // SKYDOOM_HIT_EVENT: DoDamage raises no OnHit.
+
+            SendSkyDoomHitEvent(
+
+                nearestActor,
+
+                player
+
+            );
+
+
             nearestActor->
 
                 DoDamage(
@@ -17100,6 +17167,17 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 
         {
 
+            // SKYDOOM_HIT_EVENT: DoDamage raises no OnHit.
+
+            SendSkyDoomHitEvent(
+
+                nearestActor,
+
+                player
+
+            );
+
+
             nearestActor->
 
                 DoDamage(
@@ -18283,6 +18361,17 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         if (!usedNativeHitData)
 
         {
+
+            // SKYDOOM_HIT_EVENT: DoDamage raises no OnHit.
+
+            SendSkyDoomHitEvent(
+
+                nearestActor,
+
+                player
+
+            );
+
 
             nearestActor->
 
@@ -19469,6 +19558,17 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         if (!usedNativeHitData)
 
         {
+
+            // SKYDOOM_HIT_EVENT: DoDamage raises no OnHit.
+
+            SendSkyDoomHitEvent(
+
+                nearestActor,
+
+                player
+
+            );
+
 
             nearestActor->
 
@@ -32898,6 +32998,17 @@ float screenX =
 
                 {
 
+                    // SKYDOOM_HIT_EVENT: DoDamage raises no OnHit.
+
+                    SendSkyDoomHitEvent(
+
+                        actor,
+
+                        player
+
+                    );
+
+
                     actor->
 
                         DoDamage(
@@ -37285,6 +37396,17 @@ void
 
                     {
 
+                        // SKYDOOM_HIT_EVENT: DoDamage raises no OnHit.
+
+                        SendSkyDoomHitEvent(
+
+                            target,
+
+                            player
+
+                        );
+
+
                         target->
 
                             DoDamage(
@@ -37616,6 +37738,12 @@ void
 
                     if (!usedNativeHitData)
                     {
+                        // SKYDOOM_HIT_EVENT: DoDamage raises no OnHit.
+                        SendSkyDoomHitEvent(
+                            target,
+                            player
+                        );
+
                         target->
                             DoDamage(
                                 SkyDoomScaledDamage(doomDamage),  // SKYDOOM_BALANCE
@@ -41157,6 +41285,17 @@ void
                     if (!usedNativeHitData)
 
                     {
+
+                        // SKYDOOM_HIT_EVENT: DoDamage raises no OnHit.
+
+                        SendSkyDoomHitEvent(
+
+                            target,
+
+                            player
+
+                        );
+
 
                         target->
 
