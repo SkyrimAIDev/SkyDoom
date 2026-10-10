@@ -10,7 +10,8 @@ tested), followed by the changes since the previous build.
 
 ## v0.1.20-beta - 2026-10-10
 
-Status: In testing.
+Status: In testing on Skyrim 1.6.1170 (NGVO). DOOM guns drop hanging oil lamps
+and light the oil below, as intended. Gas pockets not tested yet.
 
 - Fixed: DOOM guns did not set off hanging oil lamps (or anything else that
   reacts to being hit). DOOM bullets now travel like arrows: they hit what
