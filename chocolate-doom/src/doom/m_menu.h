@@ -51,6 +51,10 @@ void M_Init (void);
 // does nothing if menu is already up.
 void M_StartControlPanel (void);
 
+// SKYDOOM_ARCADE: show a message box; with input, routine gets the key
+// that answered it (key_menu_confirm, key_menu_abort, space or escape).
+void M_SkyDoomStartMessage(const char *string, void (*routine)(int), boolean input);
+
 
 extern int detailLevel;
 extern int screenblocks;

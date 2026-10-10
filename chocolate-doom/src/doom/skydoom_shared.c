@@ -25,6 +25,7 @@
 #include "r_main.h"
 #include "m_misc.h"
 #include "d_event.h"
+#include "d_main.h"
 #include "s_sound.h"
 #include "sounds.h"
 #include "w_wad.h"
@@ -70,6 +71,19 @@ static int skydoom_arcade_turn = 0;
 
 /* Weapon slot key pressed by next/previous weapon, released next tic. */
 static int skydoom_arcade_weapon_key = 0;
+
+/* The level-end question is on screen. */
+static int skydoom_arcade_prompt = 0;
+
+/* The player chose to go on: the next G_DoWorldDone loads the level. */
+static int skydoom_arcade_continue = 0;
+
+static char skydoom_arcade_prompt_text[192];
+
+/* Saved inventory from the host, applied once the level is loaded. */
+static int skydoom_arcade_setup[SKYDOOM_ARCADE_INV_COUNT];
+static int skydoom_arcade_setup_valid[SKYDOOM_ARCADE_INV_COUNT];
+static int skydoom_arcade_setup_pending = 0;
 
 
 /*
@@ -530,6 +544,28 @@ static void SkyDoom_ArcadeAction(unsigned int action, int down)
 
     skydoom_arcade_held[action] = down;
 
+    /*
+        While the level-end question is up, Use or Fire answers yes and
+        Back answers no. Nothing else reaches DOOM: its Use key (space)
+        would also answer the question.
+    */
+    if (skydoom_arcade_prompt)
+    {
+        if (down &&
+            (action == SKYDOOM_ARCADE_USE || action == SKYDOOM_ARCADE_FIRE))
+        {
+            SkyDoom_ArcadePostKey(key_menu_confirm, 1);
+            SkyDoom_ArcadePostKey(key_menu_confirm, 0);
+        }
+        else if (down && action == SKYDOOM_ARCADE_BACK)
+        {
+            SkyDoom_ArcadePostKey(key_menu_abort, 1);
+            SkyDoom_ArcadePostKey(key_menu_abort, 0);
+        }
+
+        return;
+    }
+
     if (action == SKYDOOM_ARCADE_NEXT_WEAPON ||
         action == SKYDOOM_ARCADE_PREV_WEAPON)
     {
@@ -593,9 +629,169 @@ static void SkyDoom_ArcadeApplyInputEvent(const SkyDoomInputEvent *event)
             SkyDoom_ArcadeReleaseAll();
             break;
 
+        case SKYDOOM_INPUT_EVENT_ARCADE_SETUP:
+            if (event->code > 0 && event->code < SKYDOOM_ARCADE_INV_COUNT)
+            {
+                skydoom_arcade_setup[event->code] = event->value;
+                skydoom_arcade_setup_valid[event->code] = 1;
+                skydoom_arcade_setup_pending = 1;
+            }
+            break;
+
         default:
             break;
     }
+}
+
+/*
+    Saved inventory from the host: what DOOM carries from one level to
+    the next. Every value is range-checked (it comes from shared memory).
+*/
+static void SkyDoom_ArcadeApplySetup(player_t *player)
+{
+    int i;
+    int value;
+
+    /* The backpack first: it doubles the ammo limits the ammo is checked against. */
+    if (skydoom_arcade_setup_valid[SKYDOOM_ARCADE_INV_BACKPACK] &&
+        skydoom_arcade_setup[SKYDOOM_ARCADE_INV_BACKPACK] &&
+        !player->backpack)
+    {
+        player->backpack = true;
+
+        for (i = 0; i < NUMAMMO; ++i)
+        {
+            player->maxammo[i] *= 2;
+        }
+    }
+
+    if (skydoom_arcade_setup_valid[SKYDOOM_ARCADE_INV_WEAPONS])
+    {
+        value = skydoom_arcade_setup[SKYDOOM_ARCADE_INV_WEAPONS];
+
+        for (i = 0; i < NUMWEAPONS; ++i)
+        {
+            player->weaponowned[i] = (value >> i) & 1;
+        }
+
+        player->weaponowned[wp_fist] = true;
+        player->weaponowned[wp_pistol] = true;
+
+        if (gamemode != commercial)
+        {
+            player->weaponowned[wp_supershotgun] = false;
+        }
+    }
+
+    value = skydoom_arcade_setup[SKYDOOM_ARCADE_INV_HEALTH];
+
+    if (skydoom_arcade_setup_valid[SKYDOOM_ARCADE_INV_HEALTH] &&
+        value >= 1 && value <= 200)
+    {
+        player->health = value;
+
+        if (player->mo != NULL)
+        {
+            player->mo->health = value;
+        }
+    }
+
+    value = skydoom_arcade_setup[SKYDOOM_ARCADE_INV_ARMOR];
+
+    if (skydoom_arcade_setup_valid[SKYDOOM_ARCADE_INV_ARMOR] &&
+        value >= 0 && value <= 200)
+    {
+        player->armorpoints = value;
+    }
+
+    value = skydoom_arcade_setup[SKYDOOM_ARCADE_INV_ARMOR_TYPE];
+
+    if (skydoom_arcade_setup_valid[SKYDOOM_ARCADE_INV_ARMOR_TYPE] &&
+        value >= 0 && value <= 2)
+    {
+        player->armortype = value;
+    }
+
+    for (i = 0; i < NUMAMMO; ++i)
+    {
+        const unsigned int field = SKYDOOM_ARCADE_INV_BULLETS + i;
+
+        value = skydoom_arcade_setup[field];
+
+        if (skydoom_arcade_setup_valid[field] &&
+            value >= 0 && value <= player->maxammo[i])
+        {
+            player->ammo[i] = value;
+        }
+    }
+
+    value = skydoom_arcade_setup[SKYDOOM_ARCADE_INV_READY_WEAPON];
+
+    if (skydoom_arcade_setup_valid[SKYDOOM_ARCADE_INV_READY_WEAPON] &&
+        value >= 0 && value < NUMWEAPONS &&
+        player->weaponowned[value] &&
+        value != player->readyweapon)
+    {
+        player->pendingweapon = (weapontype_t) value;
+    }
+
+    memset(skydoom_arcade_setup_valid, 0, sizeof(skydoom_arcade_setup_valid));
+    skydoom_arcade_setup_pending = 0;
+}
+
+/* What the player carries into the next level, for the host to save. */
+static void SkyDoom_ArcadeReportInventory(const player_t *player)
+{
+    int weapons = 0;
+    int i;
+
+    for (i = 0; i < NUMWEAPONS; ++i)
+    {
+        if (player->weaponowned[i])
+        {
+            weapons |= 1 << i;
+        }
+    }
+
+#define SKYDOOM_ARCADE_REPORT(field, value) \
+    SkyDoom_PushCombatEvent(SKYDOOM_COMBAT_EVENT_ARCADE, \
+        SKYDOOM_ARCADE_STATUS_INVENTORY, (field), (value), 0)
+
+    SKYDOOM_ARCADE_REPORT(SKYDOOM_ARCADE_INV_HEALTH, player->health);
+    SKYDOOM_ARCADE_REPORT(SKYDOOM_ARCADE_INV_ARMOR, player->armorpoints);
+    SKYDOOM_ARCADE_REPORT(SKYDOOM_ARCADE_INV_ARMOR_TYPE, player->armortype);
+    SKYDOOM_ARCADE_REPORT(SKYDOOM_ARCADE_INV_WEAPONS, weapons);
+    SKYDOOM_ARCADE_REPORT(SKYDOOM_ARCADE_INV_BACKPACK, player->backpack ? 1 : 0);
+    SKYDOOM_ARCADE_REPORT(SKYDOOM_ARCADE_INV_BULLETS, player->ammo[am_clip]);
+    SKYDOOM_ARCADE_REPORT(SKYDOOM_ARCADE_INV_SHELLS, player->ammo[am_shell]);
+    SKYDOOM_ARCADE_REPORT(SKYDOOM_ARCADE_INV_ROCKETS, player->ammo[am_misl]);
+    SKYDOOM_ARCADE_REPORT(SKYDOOM_ARCADE_INV_CELLS, player->ammo[am_cell]);
+    SKYDOOM_ARCADE_REPORT(SKYDOOM_ARCADE_INV_READY_WEAPON, player->readyweapon);
+
+#undef SKYDOOM_ARCADE_REPORT
+}
+
+/* M_SkyDoomStartMessage routine for the level-end question. */
+static void SkyDoom_ArcadePromptAnswer(int key)
+{
+    skydoom_arcade_prompt = 0;
+
+    if (key == key_menu_confirm)
+    {
+        skydoom_arcade_continue = 1;
+        gameaction = ga_worlddone;
+
+        return;
+    }
+
+    skydoom_arcade_finished = 1;
+
+    SkyDoom_PushCombatEvent(
+        SKYDOOM_COMBAT_EVENT_ARCADE,
+        SKYDOOM_ARCADE_STATUS_RETURN,
+        0,
+        0,
+        0);
 }
 
 /* Called once per tic, before the published state is refreshed. */
@@ -625,6 +821,13 @@ static void SkyDoom_ArcadeUpdate(void)
     skydoom_arcade_weapon_key = 0;
 
     SkyDoom_ConsumeInputRing();
+
+    if (skydoom_arcade_setup_pending &&
+        gamestate == GS_LEVEL &&
+        players[consoleplayer].mo != NULL)
+    {
+        SkyDoom_ArcadeApplySetup(&players[consoleplayer]);
+    }
 
     /* Host gone quiet (Skyrim minimised or busy): let go of everything. */
     if (!SkyDoom_SkyrimIsFresh())
@@ -693,8 +896,10 @@ static void SkyDoom_ArcadeCaptureFrame(const pixel_t *screen, const byte *palett
 
 /*
     G_DoWorldDone: a level is finished and its intermission screen left.
-    The minigame returns to Skyrim instead of loading the next level.
-    Returns 1 if the next level must not be loaded.
+    The host saves the progress, and the player is asked whether to go
+    on to the next level or return to Skyrim. The intermission screen
+    stays up meanwhile (Chocolate Doom keeps its graphics until the
+    gamestate changes). Returns 1 if the next level must not be loaded.
 */
 int SkyDoom_ArcadeLevelDone(int episode, int next_map)
 {
@@ -703,16 +908,42 @@ int SkyDoom_ArcadeLevelDone(int episode, int next_map)
         return 0;
     }
 
-    if (!skydoom_arcade_finished)
+    /* The player said yes: load the next level as DOOM normally does. */
+    if (skydoom_arcade_continue)
     {
-        skydoom_arcade_finished = 1;
-        SkyDoom_ArcadeReleaseAll();
+        skydoom_arcade_continue = 0;
+
+        return 0;
+    }
+
+    if (!skydoom_arcade_prompt && !skydoom_arcade_finished)
+    {
+        /* Sent whether or not the player goes on; the host keeps the latest. */
+        SkyDoom_ArcadeReportInventory(&players[consoleplayer]);
         SkyDoom_PushCombatEvent(
             SKYDOOM_COMBAT_EVENT_ARCADE,
             SKYDOOM_ARCADE_STATUS_LEVEL_DONE,
             episode,
             next_map,
             0);
+
+        /* Let go of held keys before the question takes over input. */
+        SkyDoom_ArcadeReleaseAll();
+        skydoom_arcade_prompt = 1;
+
+        M_snprintf(
+            skydoom_arcade_prompt_text,
+            sizeof(skydoom_arcade_prompt_text),
+            "LEVEL COMPLETE!\n\n"
+            "USE: GO ON TO E%dM%d\n"
+            "ESC OR B: RETURN TO SKYRIM",
+            episode,
+            next_map);
+
+        M_SkyDoomStartMessage(
+            skydoom_arcade_prompt_text,
+            SkyDoom_ArcadePromptAnswer,
+            true);
     }
 
     return 1;
@@ -733,7 +964,7 @@ void SkyDoom_ArcadeEpisodeDone(void)
         SKYDOOM_COMBAT_EVENT_ARCADE,
         SKYDOOM_ARCADE_STATUS_EPISODE_DONE,
         gameepisode,
-        0,
+        gamemode == retail ? 4 : gamemode == registered ? 3 : 1,
         0);
 }
 

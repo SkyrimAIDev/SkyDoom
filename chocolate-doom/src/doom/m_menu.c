@@ -1244,6 +1244,14 @@ M_StartMessage
 }
 
 
+// SKYDOOM_ARCADE: the minigame bridge (skydoom_shared.c) asks the player
+// whether to go on at the end of a level.
+void M_SkyDoomStartMessage(const char *string, void (*routine)(int), boolean input)
+{
+    M_StartMessage(string, (void *) routine, input);
+}
+
+
 //
 // Find string width from hu_font chars
 //

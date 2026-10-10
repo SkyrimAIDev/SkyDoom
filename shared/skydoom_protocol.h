@@ -150,10 +150,12 @@
     Guest -> host:
       overlay        every finished frame, whole and opaque
                      (SKYDOOM_OVERLAY_FLAG_FULLFRAME)
-      combat ring    SKYDOOM_COMBAT_EVENT_ARCADE when a level or the
-                     episode is finished: weapon = SKYDOOM_ARCADE_STATUS_*,
-                     damage = episode, angle_offset = next map.
-                     The game then waits for the host to close it.
+      combat ring    SKYDOOM_COMBAT_EVENT_ARCADE, weapon =
+                     SKYDOOM_ARCADE_STATUS_*: level ends with the
+                     player's inventory, the player's choice to return
+                     to Skyrim, and the end of the episode. After a
+                     return or the episode end the game waits for the
+                     host to close it.
 */
 #define SKYDOOM_INPUT_EVENT_ARCADE_ACTION 9u
 #define SKYDOOM_INPUT_EVENT_ARCADE_TURN   10u
@@ -172,12 +174,38 @@
 #define SKYDOOM_ARCADE_NEXT_WEAPON  17u
 #define SKYDOOM_ARCADE_PREV_WEAPON  18u
 #define SKYDOOM_ARCADE_AUTOMAP      19u
-#define SKYDOOM_ARCADE_ACTION_COUNT 20u
+#define SKYDOOM_ARCADE_BACK         20u /* answers "no" to the level-end question */
+#define SKYDOOM_ARCADE_ACTION_COUNT 21u
+
+/*
+    Saved progress. Host -> guest before play starts: ARCADE_SETUP,
+    code = SKYDOOM_ARCADE_INV_*, value. Guest -> host at each level
+    end: one STATUS_INVENTORY per field (damage = field, angle_offset =
+    value), then STATUS_LEVEL_DONE (damage = episode, angle_offset =
+    next map). The guest then asks whether to go on: going on loads the
+    next level, otherwise it sends STATUS_RETURN. STATUS_EPISODE_DONE
+    has damage = episode finished, angle_offset = episodes in the game.
+*/
+#define SKYDOOM_INPUT_EVENT_ARCADE_SETUP 11u
+
+#define SKYDOOM_ARCADE_INV_HEALTH       1u
+#define SKYDOOM_ARCADE_INV_ARMOR        2u
+#define SKYDOOM_ARCADE_INV_ARMOR_TYPE   3u
+#define SKYDOOM_ARCADE_INV_WEAPONS      4u /* bit n: weapontype_t n owned */
+#define SKYDOOM_ARCADE_INV_BACKPACK     5u
+#define SKYDOOM_ARCADE_INV_BULLETS      6u
+#define SKYDOOM_ARCADE_INV_SHELLS       7u
+#define SKYDOOM_ARCADE_INV_ROCKETS      8u
+#define SKYDOOM_ARCADE_INV_CELLS        9u
+#define SKYDOOM_ARCADE_INV_READY_WEAPON 10u
+#define SKYDOOM_ARCADE_INV_COUNT        11u
 
 #define SKYDOOM_COMBAT_EVENT_ARCADE 8u
 
 #define SKYDOOM_ARCADE_STATUS_LEVEL_DONE   1u
 #define SKYDOOM_ARCADE_STATUS_EPISODE_DONE 2u
+#define SKYDOOM_ARCADE_STATUS_INVENTORY    3u
+#define SKYDOOM_ARCADE_STATUS_RETURN       4u
 
 #define SKYDOOM_OVERLAY_FLAG_FULLFRAME 0x00000002u
 
