@@ -10,7 +10,8 @@ tested), followed by the changes since the previous build.
 
 ## v0.1.11-beta - 2026-10-09
 
-Status: In testing.
+Status: In testing. Rockets bust doors opened every door tried so far;
+barred doors and gates not yet tried.
 
 - New (off by default): Rockets bust doors (cheat), on the MCM General
   page, for getting unstuck. A DOOM rocket blast unlocks every door it
