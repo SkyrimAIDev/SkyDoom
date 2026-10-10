@@ -52,6 +52,17 @@
 #define SKYDOOM_LOCK_STATUS_BROKEN     2u
 #define SKYDOOM_LOCK_STATUS_NEEDS_KEY  3u
 
+/*
+    SKYDOOM_AUDIO
+
+    Skyrim -> Chocolate Doom: the combat guest's volumes from the MCM.
+    code is a SKYDOOM_AUDIO_* value; value is DOOM's 0-15 menu scale.
+*/
+#define SKYDOOM_INPUT_EVENT_AUDIO_VOLUME 12u
+
+#define SKYDOOM_AUDIO_SFX_VOLUME   1u
+#define SKYDOOM_AUDIO_MUSIC_VOLUME 2u
+
 /* SKYDOOM_DOOR_BUSTER: a rocket blast opened a door or a gate. */
 #define SKYDOOM_LOCK_STATUS_DOOR_BUSTED 4u
 #define SKYDOOM_LOCK_STATUS_GATE_BUSTED 5u

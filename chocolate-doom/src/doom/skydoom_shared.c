@@ -866,6 +866,16 @@ int SkyDoom_ArcadeModeActive(void)
     return skydoom_arcade_mode;
 }
 
+/* The combat guest outside DOOM combat (or without a live host). */
+int SkyDoom_GuestQuiet(void)
+{
+    return
+        skydoom_guest_mode &&
+        skydoom_state != NULL &&
+        (!(skydoom_state->skyrim.mode_flags & SKYDOOM_MODE_COMBAT) ||
+         !SkyDoom_SkyrimIsFresh());
+}
+
 /*
     M_QuitResponse: Quit Game in DOOM's menu returns to Skyrim. The next
     visit starts at the beginning of this level (the last level end
@@ -1089,6 +1099,26 @@ static void SkyDoom_ApplyInputEvent(const SkyDoomInputEvent *event)
     if (skydoom_arcade_mode)
     {
         SkyDoom_ArcadeApplyInputEvent(event);
+
+        return;
+    }
+
+    /* SKYDOOM_AUDIO: the combat guest's volumes from the MCM (0-15). */
+    if (event->type == SKYDOOM_INPUT_EVENT_AUDIO_VOLUME)
+    {
+        if (event->value >= 0 && event->value <= 15)
+        {
+            if (event->code == SKYDOOM_AUDIO_SFX_VOLUME)
+            {
+                sfxVolume = event->value;
+                S_SetSfxVolume(sfxVolume * 8);
+            }
+            else if (event->code == SKYDOOM_AUDIO_MUSIC_VOLUME)
+            {
+                musicVolume = event->value;
+                S_SetMusicVolume(musicVolume * 8);
+            }
+        }
 
         return;
     }
@@ -4285,6 +4315,27 @@ void SkyDoom_SharedUpdate(void)
         }
     }
 
+    /*
+        SKYDOOM_QUIET_OUTSIDE_COMBAT
+
+        The hidden guest keeps running outside DOOM combat, and a raised
+        chainsaw keeps idling (sfx_sawidl in A_WeaponReady). Stop the
+        player's sounds when DOOM combat ends; A_WeaponReady skips the
+        idle while SkyDoom_GuestQuiet().
+    */
+    if (skydoom_guest_mode)
+    {
+        static int was_combat = 0;
+        const int combat = !SkyDoom_GuestQuiet();
+
+        if (was_combat && !combat && player->mo != NULL)
+        {
+            S_StopSound(player->mo);
+        }
+
+        was_combat = combat;
+    }
+
 
 
     /*
@@ -4856,6 +4907,12 @@ int SkyDoom_ArcadeModeActive(void)
 
 
 int SkyDoom_ArcadeQuit(void)
+{
+    return 0;
+}
+
+
+int SkyDoom_GuestQuiet(void)
 {
     return 0;
 }

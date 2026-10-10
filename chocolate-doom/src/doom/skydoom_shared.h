@@ -186,6 +186,9 @@ int SkyDoom_ArcadeModeActive(void);
 /* M_QuitResponse: Quit Game returns to Skyrim; returns 1 if handled. */
 int SkyDoom_ArcadeQuit(void);
 
+/* SKYDOOM_QUIET_OUTSIDE_COMBAT: the combat guest outside DOOM combat. */
+int SkyDoom_GuestQuiet(void);
+
 
 #endif
 

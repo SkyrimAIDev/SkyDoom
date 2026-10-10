@@ -33,7 +33,7 @@
 // Data.
 #include "sounds.h"
 
-#include "p_pspr.h"
+#include "p_pspr.h"
 #include "skydoom_shared.h"
 
 #define LOWERSPEED		FRACUNIT*6
@@ -285,8 +285,10 @@ A_WeaponReady
 	P_SetMobjState (player->mo, S_PLAY);
     }
     
+    // SKYDOOM_QUIET_OUTSIDE_COMBAT: no idling chainsaw outside DOOM combat.
     if (player->readyweapon == wp_chainsaw
-	&& psp->state == &states[S_SAW])
+	&& psp->state == &states[S_SAW]
+	&& !SkyDoom_GuestQuiet())
     {
 	S_StartSound (player->mo, sfx_sawidl);
     }
@@ -471,37 +473,37 @@ A_Punch
 	damage *= 10;
 
     angle = player->mo->angle;
-    angle += P_SubRandom() << 18;
-
-    // SKYDOOM_REAL_FIST_ATTACK_V10
-    /*
-        damage is the exact Chocolate Doom roll:
-
-            2, 4, 6 ... 20
-
-        and, if Berserk is ever bridged later, A_Punch has already
-        multiplied that genuine value by 10 before this event.
-
-        angle_offset is also the exact P_SubRandom spread that this
-        attack is about to use.
-    */
-
-    if (
-        player ==
-            &players[
-                consoleplayer
-            ] &&
-        player->readyweapon ==
-            wp_fist
-    )
-    {
-        SkyDoom_ReportFistAttack(
-            damage,
-            (int32_t) (
-                angle -
-                player->mo->angle
-            )
-        );
+    angle += P_SubRandom() << 18;
+
+    // SKYDOOM_REAL_FIST_ATTACK_V10
+    /*
+        damage is the exact Chocolate Doom roll:
+
+            2, 4, 6 ... 20
+
+        and, if Berserk is ever bridged later, A_Punch has already
+        multiplied that genuine value by 10 before this event.
+
+        angle_offset is also the exact P_SubRandom spread that this
+        attack is about to use.
+    */
+
+    if (
+        player ==
+            &players[
+                consoleplayer
+            ] &&
+        player->readyweapon ==
+            wp_fist
+    )
+    {
+        SkyDoom_ReportFistAttack(
+            damage,
+            (int32_t) (
+                angle -
+                player->mo->angle
+            )
+        );
     }
     slope = P_AimLineAttack (player->mo, angle, MELEERANGE);
     P_LineAttack (player->mo, angle, MELEERANGE, slope, damage);
@@ -532,34 +534,34 @@ A_Saw
 
     damage = 2*(P_Random ()%10+1);
     angle = player->mo->angle;
-    angle += P_SubRandom() << 18;
-
-    // SKYDOOM_REAL_CHAINSAW_ATTACK_V10
-    /*
-        damage is the exact Chocolate Doom chainsaw roll:
-
-            2, 4, 6 ... 20
-
-        The weapon state machine continues to own the real chainsaw
-        cadence, animation and normal Chocolate Doom saw audio.
-    */
-
-    if (
-        player ==
-            &players[
-                consoleplayer
-            ] &&
-        player->readyweapon ==
-            wp_chainsaw
-    )
-    {
-        SkyDoom_ReportChainsawAttack(
-            damage,
-            (int32_t) (
-                angle -
-                player->mo->angle
-            )
-        );
+    angle += P_SubRandom() << 18;
+
+    // SKYDOOM_REAL_CHAINSAW_ATTACK_V10
+    /*
+        damage is the exact Chocolate Doom chainsaw roll:
+
+            2, 4, 6 ... 20
+
+        The weapon state machine continues to own the real chainsaw
+        cadence, animation and normal Chocolate Doom saw audio.
+    */
+
+    if (
+        player ==
+            &players[
+                consoleplayer
+            ] &&
+        player->readyweapon ==
+            wp_chainsaw
+    )
+    {
+        SkyDoom_ReportChainsawAttack(
+            damage,
+            (int32_t) (
+                angle -
+                player->mo->angle
+            )
+        );
     }
     
     // use meleerange + 1 se the puff doesn't skip the flash
@@ -621,26 +623,26 @@ A_FireMissile
   pspdef_t*	psp ) 
 {
     DecreaseAmmo(player, weaponinfo[player->readyweapon].ammo, 1);
-    
-
-    // SKYDOOM_REAL_ROCKET_FIRE_V11
-    /*
-        The actual Chocolate Doom rocket-launcher weapon state
-        reached its real fire action.
-
-        Report exactly one Skyrim logical projectile launch.
-    */
-
-    if (
-        player ==
-            &players[
-                consoleplayer
-            ] &&
-        player->readyweapon ==
+    
+
+    // SKYDOOM_REAL_ROCKET_FIRE_V11
+    /*
+        The actual Chocolate Doom rocket-launcher weapon state
+        reached its real fire action.
+
+        Report exactly one Skyrim logical projectile launch.
+    */
+
+    if (
+        player ==
+            &players[
+                consoleplayer
+            ] &&
+        player->readyweapon ==
             wp_missile &&
-        SkyDoom_SharedActive()
-    )
-    {
+        SkyDoom_SharedActive()
+    )
+    {
         // SKYDOOM_ROCKET_SOUND_FIX_V13_1
         S_StartSound(player->mo, sfx_rlaunc);
         SkyDoom_ReportRocketFired();
@@ -656,9 +658,9 @@ A_FireMissile
             hidden map geometry and damage the Doom player.
         */
 
-        return;
-    }
-
+        return;
+    }
+
 P_SpawnPlayerMissile (player->mo, MT_ROCKET);
 }
 
@@ -673,25 +675,25 @@ A_FireBFG
 {
     DecreaseAmmo(player, weaponinfo[player->readyweapon].ammo, 
                  deh_bfg_cells_per_shot);
-    // SKYDOOM_REAL_BFG_FIRE_V14
-    if (
-        player == &players[consoleplayer] &&
-        player->readyweapon == wp_bfg &&
-        SkyDoom_SharedActive()
-    )
-    {
-        /*
-            A_BFGsound remains untouched and supplies Doom's
-            genuine BFG firing sound during the native weapon state.
-    
-            Skyrim will own the visible BFG projectile in Stage 2,
-            so suppress the hidden Doom MT_BFG while shared mode
-            is active.
-        */
-        SkyDoom_ReportBFGFired();
-        return;
-    }
-    
+    // SKYDOOM_REAL_BFG_FIRE_V14
+    if (
+        player == &players[consoleplayer] &&
+        player->readyweapon == wp_bfg &&
+        SkyDoom_SharedActive()
+    )
+    {
+        /*
+            A_BFGsound remains untouched and supplies Doom's
+            genuine BFG firing sound during the native weapon state.
+    
+            Skyrim will own the visible BFG projectile in Stage 2,
+            so suppress the hidden Doom MT_BFG while shared mode
+            is active.
+        */
+        SkyDoom_ReportBFGFired();
+        return;
+    }
+    
     P_SpawnPlayerMissile (player->mo, MT_BFG);
 }
 
@@ -768,85 +770,85 @@ P_GunShot
     angle_t	angle;
     int		damage;
 	
-    damage = 5*(P_Random ()%3+1);
-
-    // SKYDOOM_PISTOL_ROLL_REPORT_V5
-    /*
-        Chocolate Doom owns the pistol damage roll.
-
-        P_GunShot is also used by other bullet weapons, so only
-        publish this particular roll when the player's currently
-        firing weapon really is the pistol.
-    */
-
-    if (
-        mo == players[consoleplayer].mo &&
-        players[consoleplayer].readyweapon == wp_pistol
-    )
-    {
-        SkyDoom_ReportPistolShotDamage(
-            damage
-        );
+    damage = 5*(P_Random ()%3+1);
+
+    // SKYDOOM_PISTOL_ROLL_REPORT_V5
+    /*
+        Chocolate Doom owns the pistol damage roll.
+
+        P_GunShot is also used by other bullet weapons, so only
+        publish this particular roll when the player's currently
+        firing weapon really is the pistol.
+    */
+
+    if (
+        mo == players[consoleplayer].mo &&
+        players[consoleplayer].readyweapon == wp_pistol
+    )
+    {
+        SkyDoom_ReportPistolShotDamage(
+            damage
+        );
     }
     angle = mo->angle;
 
     if (!accurate)
 	angle += P_SubRandom() << 18;
 
-    
-
-    // SKYDOOM_REAL_SHOTGUN_PELLET_V6
-    /*
-        The spread RNG has ALREADY been consumed above.
-
-        Do not generate another random number here.
-
-        angle - mo->angle therefore represents the exact horizontal
-        spread Chocolate Doom is about to use for this pellet.
-    */
-
-    if (
-        mo == players[consoleplayer].mo &&
-        players[consoleplayer].readyweapon == wp_shotgun
-    )
-    {
-        SkyDoom_ReportShotgunPellet(
-            damage,
-            (int32_t) (angle - mo->angle),
-            0
-        );
-    }
-
-
-
-    // SKYDOOM_REAL_CHAINGUN_BULLET_V9
-    /*
-        This is the real Chocolate Doom bullet.
-
-        damage is the genuine P_Random 5 / 10 / 15 roll.
-
-        angle has already been changed by P_SubRandom() when this
-        chaingun shot is inaccurate.
-
-        For an accurate first shot:
-            angle_offset = 0
-
-        For continued fire:
-            angle_offset = exact real DOOM horizontal spread
-    */
-
-    if (
-        mo == players[consoleplayer].mo &&
-        players[consoleplayer].readyweapon == wp_chaingun
-    )
-    {
-        SkyDoom_ReportChaingunBullet(
-            damage,
-            (int32_t) (angle - mo->angle),
-            0
-        );
-    }
-
+    
+
+    // SKYDOOM_REAL_SHOTGUN_PELLET_V6
+    /*
+        The spread RNG has ALREADY been consumed above.
+
+        Do not generate another random number here.
+
+        angle - mo->angle therefore represents the exact horizontal
+        spread Chocolate Doom is about to use for this pellet.
+    */
+
+    if (
+        mo == players[consoleplayer].mo &&
+        players[consoleplayer].readyweapon == wp_shotgun
+    )
+    {
+        SkyDoom_ReportShotgunPellet(
+            damage,
+            (int32_t) (angle - mo->angle),
+            0
+        );
+    }
+
+
+
+    // SKYDOOM_REAL_CHAINGUN_BULLET_V9
+    /*
+        This is the real Chocolate Doom bullet.
+
+        damage is the genuine P_Random 5 / 10 / 15 roll.
+
+        angle has already been changed by P_SubRandom() when this
+        chaingun shot is inaccurate.
+
+        For an accurate first shot:
+            angle_offset = 0
+
+        For continued fire:
+            angle_offset = exact real DOOM horizontal spread
+    */
+
+    if (
+        mo == players[consoleplayer].mo &&
+        players[consoleplayer].readyweapon == wp_chaingun
+    )
+    {
+        SkyDoom_ReportChaingunBullet(
+            damage,
+            (int32_t) (angle - mo->angle),
+            0
+        );
+    }
+
 P_LineAttack (mo, angle, MISSILERANGE, bulletslope, damage);
 }
 
