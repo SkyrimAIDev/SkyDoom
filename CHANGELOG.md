@@ -35,7 +35,8 @@ slicks themselves (fixed in v0.1.21-beta).
 
 ## v0.1.19-beta - 2026-10-10
 
-Status: In testing. Hanging oil lamps did not react to DOOM guns (fixed in
+Status: In testing on Skyrim 1.6.1170 (NGVO). DOOM's F-key shortcuts work in
+the minigame. Hanging oil lamps did not react to DOOM guns (fixed in
 v0.1.20-beta).
 
 - New: DOOM weapons train your Skyrim skills: guns train Archery, the fist
@@ -169,8 +170,8 @@ E1M1, which played well, and finishing the level returned to Skyrim.
 
 ## v0.1.11-beta - 2026-10-09
 
-Status: In testing. Rockets bust doors opened every door tried so far;
-barred doors and gates not yet tried.
+Status: Tested on Skyrim 1.6.1170 (NGVO). Rockets bust doors works on doors,
+barred doors and gates.
 
 - New (off by default): Rockets bust doors (cheat), on the MCM General
   page, for getting unstuck. A DOOM rocket blast unlocks every door it
