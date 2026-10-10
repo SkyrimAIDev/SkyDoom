@@ -10,7 +10,8 @@ tested), followed by the changes since the previous build.
 
 ## v0.1.18-beta - 2026-10-10
 
-Status: In testing.
+Status: Tested on Skyrim 1.6.1170 (NGVO). The Companions' dialogue is clear;
+DOOM combat music pauses for it and comes back afterwards.
 
 - Fixed: DOOM music kept playing during dialogue and drowned out what
   people said. DOOM now goes quiet whenever its HUD is hidden (dialogue and
