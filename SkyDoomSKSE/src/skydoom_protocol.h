@@ -134,6 +134,53 @@
 #define SKYDOOM_MODE_COMBAT 0x00000001u /* DOOM combat mode is active */
 #define SKYDOOM_MODE_MUSIC  0x00000002u /* DOOM music may play */
 
+/*
+    SKYDOOM_ARCADE
+
+    The DOOM minigame runs in a second Chocolate Doom process, started
+    with -skydoomarcade and its own mapping: plain DOOM (monsters, real
+    weapons, no combat bridge), shown full screen by the host while
+    Skyrim is paused.
+
+    Host -> guest (input ring):
+      ARCADE_ACTION  code = SKYDOOM_ARCADE_*, value 1 pressed / 0 released
+      ARCADE_TURN    value = mouse-style turn, positive to the right
+      RELEASE_ALL    releases every action
+
+    Guest -> host:
+      overlay        every finished frame, whole and opaque
+                     (SKYDOOM_OVERLAY_FLAG_FULLFRAME)
+      combat ring    SKYDOOM_COMBAT_EVENT_ARCADE when a level or the
+                     episode is finished: weapon = SKYDOOM_ARCADE_STATUS_*,
+                     damage = episode, angle_offset = next map.
+                     The game then waits for the host to close it.
+*/
+#define SKYDOOM_INPUT_EVENT_ARCADE_ACTION 9u
+#define SKYDOOM_INPUT_EVENT_ARCADE_TURN   10u
+
+#define SKYDOOM_ARCADE_FORWARD       1u
+#define SKYDOOM_ARCADE_BACK          2u
+#define SKYDOOM_ARCADE_STRAFE_LEFT   3u
+#define SKYDOOM_ARCADE_STRAFE_RIGHT  4u
+#define SKYDOOM_ARCADE_TURN_LEFT     5u
+#define SKYDOOM_ARCADE_TURN_RIGHT    6u
+#define SKYDOOM_ARCADE_FIRE          7u
+#define SKYDOOM_ARCADE_USE           8u
+#define SKYDOOM_ARCADE_RUN           9u
+#define SKYDOOM_ARCADE_WEAPON_1     10u /* 10..16: weapon slots 1-7 */
+#define SKYDOOM_ARCADE_WEAPON_7     16u
+#define SKYDOOM_ARCADE_NEXT_WEAPON  17u
+#define SKYDOOM_ARCADE_PREV_WEAPON  18u
+#define SKYDOOM_ARCADE_AUTOMAP      19u
+#define SKYDOOM_ARCADE_ACTION_COUNT 20u
+
+#define SKYDOOM_COMBAT_EVENT_ARCADE 8u
+
+#define SKYDOOM_ARCADE_STATUS_LEVEL_DONE   1u
+#define SKYDOOM_ARCADE_STATUS_EPISODE_DONE 2u
+
+#define SKYDOOM_OVERLAY_FLAG_FULLFRAME 0x00000002u
+
 
 #pragma pack(push, 8)
 

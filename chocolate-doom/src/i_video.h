@@ -87,6 +87,10 @@ extern boolean screensaver_mode;
 extern int usegamma;
 extern pixel_t *I_VideoBuffer;
 
+// SKYDOOM_ARCADE: called from I_FinishUpdate with each finished frame
+// and the current palette (256 RGB triplets); NULL when unused.
+extern void (*I_SkyDoomFrameHook)(const pixel_t *screen, const byte *palette);
+
 extern int screen_width;
 extern int screen_height;
 extern int fullscreen;

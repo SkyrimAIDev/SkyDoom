@@ -80,6 +80,11 @@ static SDL_Rect blit_rect = {
 // palette
 
 static SDL_Color palette[256];
+
+// SKYDOOM_ARCADE: the minigame bridge (doom/skydoom_shared.c) receives each
+// finished frame with the current gamma-corrected palette as RGB triplets.
+void (*I_SkyDoomFrameHook)(const pixel_t *screen, const byte *palette) = NULL;
+static byte skydoom_frame_palette[256 * 3];
 static boolean palette_to_set;
 
 // display has been set up?
@@ -707,8 +712,14 @@ void I_FinishUpdate (void)
     int tics;
     int i;
 
+    // SKYDOOM_ARCADE: hand the finished frame to the minigame bridge.
+    if (I_SkyDoomFrameHook != NULL && I_VideoBuffer != NULL)
+    {
+        I_SkyDoomFrameHook(I_VideoBuffer, skydoom_frame_palette);
+    }
+
     // SKYDOOM_GUEST_NOBLIT_BEGIN
-    if (M_ParmExists("-skydoomguest"))
+    if (M_ParmExists("-skydoomguest") || M_ParmExists("-skydoomarcade"))
     {
         return;
     }
@@ -856,6 +867,11 @@ void I_SetPalette (byte *doompalette)
         palette[i].r = gammatable[usegamma][*doompalette++] & ~3;
         palette[i].g = gammatable[usegamma][*doompalette++] & ~3;
         palette[i].b = gammatable[usegamma][*doompalette++] & ~3;
+
+        // SKYDOOM_ARCADE: RGB copy for I_SkyDoomFrameHook.
+        skydoom_frame_palette[i * 3 + 0] = palette[i].r;
+        skydoom_frame_palette[i * 3 + 1] = palette[i].g;
+        skydoom_frame_palette[i * 3 + 2] = palette[i].b;
     }
 
     palette_to_set = true;
@@ -1221,7 +1237,7 @@ static void SetVideoMode(void)
     window_flags = SDL_WINDOW_RESIZABLE;
 
     // SKYDOOM_GUEST_WINDOW_BEGIN
-    if (M_ParmExists("-skydoomguest"))
+    if (M_ParmExists("-skydoomguest") || M_ParmExists("-skydoomarcade"))
     {
         fullscreen = false;
         window_flags |= SDL_WINDOW_HIDDEN;

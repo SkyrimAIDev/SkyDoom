@@ -1612,6 +1612,13 @@ void G_WorldDone (void)
  
 void G_DoWorldDone (void) 
 {        
+    // SKYDOOM_ARCADE: the minigame returns to Skyrim between levels.
+    if (SkyDoom_ArcadeLevelDone(gameepisode, wminfo.next + 1))
+    {
+        gameaction = ga_nothing;
+        return;
+    }
+
     gamestate = GS_LEVEL; 
     gamemap = wminfo.next+1; 
     G_DoLoadLevel (); 

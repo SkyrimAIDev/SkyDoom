@@ -49,6 +49,7 @@ typedef enum
 //#include "doomstat.h"
 //#include "r_local.h"
 //#include "f_finale.h"
+#include "skydoom_shared.h"
 
 // Stage of animation:
 finalestage_t finalestage;
@@ -210,6 +211,8 @@ void F_Ticker (void)
 	finalecount = 0;
 	finalestage = F_STAGE_ARTSCREEN;
 	wipegamestate = -1;		// force a wipe
+	// SKYDOOM_ARCADE: the minigame returns to Skyrim after the ending text.
+	SkyDoom_ArcadeEpisodeDone();
 	if (gameepisode == 3)
 	    S_StartMusic (mus_bunny);
     }

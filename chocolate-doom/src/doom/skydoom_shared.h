@@ -170,5 +170,16 @@ void SkyDoom_ReportRocketDamageRequest(
 
 
 
+/*
+    SKYDOOM_ARCADE: the DOOM minigame (-skydoomarcade).
+
+    SkyDoom_ArcadeLevelDone: G_DoWorldDone calls this before loading the
+    next level; returns 1 when the minigame stops there instead.
+    SkyDoom_ArcadeEpisodeDone: the episode's ending text was shown.
+*/
+int SkyDoom_ArcadeLevelDone(int episode, int next_map);
+void SkyDoom_ArcadeEpisodeDone(void);
+
+
 #endif
 

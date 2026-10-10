@@ -20,7 +20,11 @@
 #include "i_video.h"
 #include "st_stuff.h"
 #include "m_argv.h"
+#include "m_controls.h"
+#include "m_menu.h"
+#include "r_main.h"
 #include "m_misc.h"
+#include "d_event.h"
 #include "s_sound.h"
 #include "sounds.h"
 #include "w_wad.h"
@@ -51,6 +55,21 @@ static HANDLE skydoom_mapping = NULL;
 static SkyDoomSharedState *skydoom_state = NULL;
 
 static int skydoom_guest_mode = 0;
+
+/* SKYDOOM_ARCADE: the DOOM minigame (-skydoomarcade). */
+static int skydoom_arcade_mode = 0;
+
+/* A finished level or episode has been reported; the host closes us. */
+static int skydoom_arcade_finished = 0;
+
+/* Actions the host is holding down, by SKYDOOM_ARCADE_* code. */
+static int skydoom_arcade_held[SKYDOOM_ARCADE_ACTION_COUNT];
+
+/* Turning received this tic, posted as one mouse event. */
+static int skydoom_arcade_turn = 0;
+
+/* Weapon slot key pressed by next/previous weapon, released next tic. */
+static int skydoom_arcade_weapon_key = 0;
 
 
 /*
@@ -423,12 +442,314 @@ static void SkyDoom_CycleWeapon(int direction)
     }
 }
 
+static void SkyDoom_ConsumeInputRing(void);
+
+/*
+    SKYDOOM_ARCADE
+
+    In the minigame the host's actions become ordinary DOOM key and mouse
+    events, so DOOM's own controls apply: movement, running, turning,
+    weapon keys, the automap, "press use" to respawn and to leave the
+    intermission screen. Keys are looked up in DOOM's key bindings, so
+    they work whatever the config file says.
+*/
+static int SkyDoom_ArcadeKeyFor(unsigned int action)
+{
+    switch (action)
+    {
+        case SKYDOOM_ARCADE_FORWARD:      return key_up;
+        case SKYDOOM_ARCADE_BACK:         return key_down;
+        case SKYDOOM_ARCADE_STRAFE_LEFT:  return key_strafeleft;
+        case SKYDOOM_ARCADE_STRAFE_RIGHT: return key_straferight;
+        case SKYDOOM_ARCADE_TURN_LEFT:    return key_left;
+        case SKYDOOM_ARCADE_TURN_RIGHT:   return key_right;
+        case SKYDOOM_ARCADE_FIRE:         return key_fire;
+        case SKYDOOM_ARCADE_USE:          return key_use;
+        case SKYDOOM_ARCADE_RUN:          return key_speed;
+        case SKYDOOM_ARCADE_WEAPON_1:     return key_weapon1;
+        case SKYDOOM_ARCADE_WEAPON_1 + 1: return key_weapon2;
+        case SKYDOOM_ARCADE_WEAPON_1 + 2: return key_weapon3;
+        case SKYDOOM_ARCADE_WEAPON_1 + 3: return key_weapon4;
+        case SKYDOOM_ARCADE_WEAPON_1 + 4: return key_weapon5;
+        case SKYDOOM_ARCADE_WEAPON_1 + 5: return key_weapon6;
+        case SKYDOOM_ARCADE_WEAPON_7:     return key_weapon7;
+        case SKYDOOM_ARCADE_AUTOMAP:      return key_map_toggle;
+        default:                          return 0;
+    }
+}
+
+/* Weapon slot key that selects a weapon (slot 1 is fist and chainsaw). */
+static int SkyDoom_ArcadeWeaponKey(weapontype_t weapon)
+{
+    switch (weapon)
+    {
+        case wp_fist:
+        case wp_chainsaw:       return key_weapon1;
+        case wp_pistol:         return key_weapon2;
+        case wp_shotgun:
+        case wp_supershotgun:   return key_weapon3;
+        case wp_chaingun:       return key_weapon4;
+        case wp_missile:        return key_weapon5;
+        case wp_plasma:         return key_weapon6;
+        case wp_bfg:            return key_weapon7;
+        default:                return 0;
+    }
+}
+
+static void SkyDoom_ArcadePostKey(int key, int down)
+{
+    event_t event;
+
+    if (key <= 0)
+    {
+        return;
+    }
+
+    memset(&event, 0, sizeof(event));
+    event.type = down ? ev_keydown : ev_keyup;
+    event.data1 = key;
+    event.data2 = key;
+    D_PostEvent(&event);
+}
+
+static void SkyDoom_ArcadeAction(unsigned int action, int down)
+{
+    int direction;
+
+    if (action == 0 || action >= SKYDOOM_ARCADE_ACTION_COUNT)
+    {
+        return;
+    }
+
+    down = down != 0;
+
+    if (skydoom_arcade_held[action] == down)
+    {
+        return;
+    }
+
+    skydoom_arcade_held[action] = down;
+
+    if (action == SKYDOOM_ARCADE_NEXT_WEAPON ||
+        action == SKYDOOM_ARCADE_PREV_WEAPON)
+    {
+        if (!down || gamestate != GS_LEVEL)
+        {
+            return;
+        }
+
+        direction = action == SKYDOOM_ARCADE_NEXT_WEAPON ? 1 : -1;
+
+        SkyDoom_CycleWeapon(direction);
+
+        if (skydoom_pending_weapon >= 0)
+        {
+            SkyDoom_ArcadePostKey(skydoom_arcade_weapon_key, 0);
+
+            skydoom_arcade_weapon_key =
+                SkyDoom_ArcadeWeaponKey((weapontype_t) skydoom_pending_weapon);
+            skydoom_pending_weapon = -1;
+
+            SkyDoom_ArcadePostKey(skydoom_arcade_weapon_key, 1);
+        }
+
+        return;
+    }
+
+    SkyDoom_ArcadePostKey(SkyDoom_ArcadeKeyFor(action), down);
+}
+
+static void SkyDoom_ArcadeReleaseAll(void)
+{
+    unsigned int action;
+
+    for (action = 1; action < SKYDOOM_ARCADE_ACTION_COUNT; ++action)
+    {
+        SkyDoom_ArcadeAction(action, 0);
+    }
+
+    SkyDoom_ArcadePostKey(skydoom_arcade_weapon_key, 0);
+    skydoom_arcade_weapon_key = 0;
+    skydoom_arcade_turn = 0;
+}
+
+static void SkyDoom_ArcadeApplyInputEvent(const SkyDoomInputEvent *event)
+{
+    switch (event->type)
+    {
+        case SKYDOOM_INPUT_EVENT_ARCADE_ACTION:
+            SkyDoom_ArcadeAction(event->code, event->value);
+            break;
+
+        case SKYDOOM_INPUT_EVENT_ARCADE_TURN:
+            /* Bounded: values come from shared memory. */
+            if (event->value > -4096 && event->value < 4096)
+            {
+                skydoom_arcade_turn += event->value;
+            }
+            break;
+
+        case SKYDOOM_INPUT_EVENT_RELEASE_ALL:
+            SkyDoom_ArcadeReleaseAll();
+            break;
+
+        default:
+            break;
+    }
+}
+
+/* Called once per tic, before the published state is refreshed. */
+static void SkyDoom_ArcadeUpdate(void)
+{
+    static int view_size_set = 0;
+    event_t event;
+
+    /*
+        Full-width view with the status bar (DOOM's default size has a
+        border). The minigame never saves its config, so this does not
+        carry over to the hidden combat guest.
+    */
+    if (!view_size_set)
+    {
+        view_size_set = 1;
+
+        if (screenblocks < 10)
+        {
+            screenblocks = 10;
+            R_SetViewSize(screenblocks, detailLevel);
+        }
+    }
+
+    /* Release the weapon key pressed by next/previous weapon last tic. */
+    SkyDoom_ArcadePostKey(skydoom_arcade_weapon_key, 0);
+    skydoom_arcade_weapon_key = 0;
+
+    SkyDoom_ConsumeInputRing();
+
+    /* Host gone quiet (Skyrim minimised or busy): let go of everything. */
+    if (!SkyDoom_SkyrimIsFresh())
+    {
+        SkyDoom_ArcadeReleaseAll();
+    }
+
+    if (skydoom_arcade_turn != 0)
+    {
+        if (skydoom_arcade_turn > 8192)
+        {
+            skydoom_arcade_turn = 8192;
+        }
+        else if (skydoom_arcade_turn < -8192)
+        {
+            skydoom_arcade_turn = -8192;
+        }
+
+        /* Horizontal mouse motion only: DOOM's vertical mouse moves. */
+        memset(&event, 0, sizeof(event));
+        event.type = ev_mouse;
+        event.data2 = skydoom_arcade_turn;
+        D_PostEvent(&event);
+
+        skydoom_arcade_turn = 0;
+    }
+}
+
+/* I_SkyDoomFrameHook: publish the finished frame, whole and opaque. */
+static void SkyDoom_ArcadeCaptureFrame(const pixel_t *screen, const byte *palette)
+{
+    SkyDoomOverlayFrame *overlay;
+    unsigned int i;
+    const byte *rgb;
+
+    if (skydoom_state == NULL || screen == NULL || palette == NULL)
+    {
+        return;
+    }
+
+    overlay = &skydoom_state->overlay;
+
+    /* Seqlock write: odd while the frame is being written. */
+    overlay->seq++;
+    MemoryBarrier();
+
+    overlay->width = SKYDOOM_OVERLAY_WIDTH;
+    overlay->height = SKYDOOM_OVERLAY_HEIGHT;
+    overlay->flags = SKYDOOM_OVERLAY_FLAG_FULLFRAME;
+
+    for (i = 0; i < SKYDOOM_OVERLAY_WIDTH * SKYDOOM_OVERLAY_HEIGHT; ++i)
+    {
+        rgb = palette + screen[i] * 3;
+
+        overlay->rgba[i * 4 + 0] = rgb[0];
+        overlay->rgba[i * 4 + 1] = rgb[1];
+        overlay->rgba[i * 4 + 2] = rgb[2];
+        overlay->rgba[i * 4 + 3] = 255;
+    }
+
+    overlay->frame_id++;
+
+    MemoryBarrier();
+    overlay->seq++;
+}
+
+/*
+    G_DoWorldDone: a level is finished and its intermission screen left.
+    The minigame returns to Skyrim instead of loading the next level.
+    Returns 1 if the next level must not be loaded.
+*/
+int SkyDoom_ArcadeLevelDone(int episode, int next_map)
+{
+    if (!skydoom_arcade_mode || skydoom_state == NULL)
+    {
+        return 0;
+    }
+
+    if (!skydoom_arcade_finished)
+    {
+        skydoom_arcade_finished = 1;
+        SkyDoom_ArcadeReleaseAll();
+        SkyDoom_PushCombatEvent(
+            SKYDOOM_COMBAT_EVENT_ARCADE,
+            SKYDOOM_ARCADE_STATUS_LEVEL_DONE,
+            episode,
+            next_map,
+            0);
+    }
+
+    return 1;
+}
+
+/* F_Ticker: the episode's ending text has been shown. */
+void SkyDoom_ArcadeEpisodeDone(void)
+{
+    if (!skydoom_arcade_mode || skydoom_state == NULL ||
+        skydoom_arcade_finished)
+    {
+        return;
+    }
+
+    skydoom_arcade_finished = 1;
+    SkyDoom_ArcadeReleaseAll();
+    SkyDoom_PushCombatEvent(
+        SKYDOOM_COMBAT_EVENT_ARCADE,
+        SKYDOOM_ARCADE_STATUS_EPISODE_DONE,
+        gameepisode,
+        0,
+        0);
+}
+
 static void SkyDoom_ApplyInputEvent(const SkyDoomInputEvent *event)
 {
     int down;
 
     if (event == NULL)
     {
+        return;
+    }
+
+    if (skydoom_arcade_mode)
+    {
+        SkyDoom_ArcadeApplyInputEvent(event);
+
         return;
     }
 
@@ -2775,13 +3096,16 @@ int SkyDoom_SharedInit(void)
     int arg;
 
     skydoom_guest_mode = M_ParmExists("-skydoomguest");
+    /* SKYDOOM_ARCADE: the minigame never runs as the combat guest. */
+    skydoom_arcade_mode =
+        !skydoom_guest_mode && M_ParmExists("-skydoomarcade");
 
     /*
         Only the hidden guest launched by the SKSE plugin may attach.
         A normal run of this exe must not join (and overwrite) a live
         Skyrim session's shared state.
     */
-    if (!skydoom_guest_mode)
+    if (!skydoom_guest_mode && !skydoom_arcade_mode)
     {
         return 0;
     }
@@ -2852,6 +3176,11 @@ int SkyDoom_SharedInit(void)
     skydoom_state->doom.guest_mode = skydoom_guest_mode ? 1u : 0u;
 
     skydoom_state->doom.heartbeat_ms = GetTickCount64();
+
+    if (skydoom_arcade_mode)
+    {
+        I_SkyDoomFrameHook = SkyDoom_ArcadeCaptureFrame;
+    }
 
     atexit(SkyDoom_SharedShutdown);
 
@@ -2991,7 +3320,7 @@ static void SkyDoom_PushCombatEvent(
 
         skydoom_state == NULL ||
 
-        !skydoom_guest_mode
+        (!skydoom_guest_mode && !skydoom_arcade_mode)
 
     )
 
@@ -3309,9 +3638,13 @@ void SkyDoom_ReportChainsawAttack(
 
 
 
+/*
+    The combat bridge to Skyrim (rockets, plasma and BFG handled by the
+    host). Off in the minigame, where DOOM plays as normal.
+*/
 int SkyDoom_SharedActive(void)
 {
-    return skydoom_state != NULL;
+    return skydoom_state != NULL && skydoom_guest_mode;
 }
 
 /* SKYDOOM_GUEST_NATIVE_PICKUP_ISOLATION_V15_9C1 */
@@ -3865,6 +4198,11 @@ void SkyDoom_SharedUpdate(void)
 
     }
 
+    if (skydoom_arcade_mode)
+    {
+        SkyDoom_ArcadeUpdate();
+    }
+
     SkyDoom_InjectGuestCommand(player);
 
     skydoom_state->doom.running = 1;
@@ -4154,6 +4492,19 @@ void SkyDoom_OverlayCaptureHUDBefore(void)
 
 
 void SkyDoom_OverlayCaptureHUDAfter(void)
+{
+}
+
+
+int SkyDoom_ArcadeLevelDone(int episode, int next_map)
+{
+    (void) episode;
+    (void) next_map;
+    return 0;
+}
+
+
+void SkyDoom_ArcadeEpisodeDone(void)
 {
 }
 
