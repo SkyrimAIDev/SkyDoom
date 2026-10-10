@@ -10,7 +10,8 @@ tested), followed by the changes since the previous build.
 
 ## v0.1.21-beta - 2026-10-10
 
-Status: In testing.
+Status: Tested on Skyrim 1.6.1170 (NGVO). Rocket blasts lit a gas pocket and an
+oil slick in WarehouseTraps.
 
 - Fixed: DOOM rocket explosions did not light oil slicks (only a falling
   oil lamp did). Oil slicks and gas pockets caught in a blast now catch
