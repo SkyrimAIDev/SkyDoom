@@ -108,6 +108,8 @@ You will fight as you fight in DOOM, with whatever you can find. Your own weapon
 
 At the end of each level the gate asks whether you go on. Press Use to go deeper, or Esc (B on a controller) to return to where you stood. The book remembers where you stopped and what you carried.
 
+Esc (Start on a controller) opens the gate's own menu: save, load, options, or quit back to Skyrim in the middle of a level.
+
 If the way back is ever lost, hold the Toggle DOOM mode key.
 </p>
 """

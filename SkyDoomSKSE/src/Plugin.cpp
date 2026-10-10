@@ -10570,21 +10570,25 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
             case 0x0F:  // Tab
                 return SKYDOOM_ARCADE_AUTOMAP;
             case 0x01:  // Esc
-                return SKYDOOM_ARCADE_BACK;
+                return SKYDOOM_ARCADE_MENU;
             default:
                 break;
             }
         }
 
-        // Gamepad Back shows the automap; B answers "no" at a level end.
+        // Gamepad Back shows the automap; Start and B open DOOM's menu
+        // and answer "no" to its questions.
         if (code == 271)
         {
             return SKYDOOM_ARCADE_AUTOMAP;
         }
 
-        if (code == 277)
+        if (
+            code == 270 ||
+            code == 277
+        )
         {
-            return SKYDOOM_ARCADE_BACK;
+            return SKYDOOM_ARCADE_MENU;
         }
 
         return 0;
@@ -11088,6 +11092,44 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
                 g_settings.arcadeSkill;
         }
 
+        /*
+            The minigame's settings and DOOM saves go beside Skyrim's own
+            files in My Games (Documents\My Games\Skyrim Special Edition\
+            SkyDoom\Minigame). Chocolate Doom would otherwise write them
+            next to its exe, inside the mod, which Mod Organizer catches
+            in Overwrite mid-session.
+        */
+        std::wstring minigameFiles;
+
+        if (const auto logDirectory = SKSE::log::log_directory())
+        {
+            const auto minigameDirectory =
+                logDirectory->parent_path() / L"SkyDoom" / L"Minigame";
+
+            std::error_code error;
+
+            std::filesystem::create_directories(
+                minigameDirectory / L"saves",
+                error
+            );
+
+            if (!error)
+            {
+                minigameFiles =
+                    L" -config \"" + (minigameDirectory / L"minigame-default.cfg").wstring() +
+                    L"\" -extraconfig \"" + (minigameDirectory / L"minigame.cfg").wstring() +
+                    L"\" -savedir \"" + (minigameDirectory / L"saves").wstring() +
+                    L"\"";
+            }
+            else
+            {
+                logger::warn(
+                    "SkyDoom arcade: could not create the minigame folder ({}); DOOM keeps its files beside its exe",
+                    error.message()
+                );
+            }
+        }
+
         // Start at the saved level; DOOM skills are 1-5.
         std::wstring commandLine =
             L"\"" + g_doomExePath +
@@ -11095,6 +11137,7 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
             L"\" -warp " + std::to_wstring(g_arcadeProgress.episode) +
             L" " + std::to_wstring(g_arcadeProgress.map) +
             L" -skill " + std::to_wstring(skill + 1) +
+            minigameFiles +
             L" -nomouse -window -skydoomarcade " +
             SkyDoomUtf8ToWide(SKYDOOM_MAPPING_ARG) +
             L" " +
