@@ -8,10 +8,20 @@ first. Each build is made from its `release/<version>` branch, and its
 Each section starts with a `Status:` line (how far the build has been
 tested), followed by the changes since the previous build.
 
+## v0.1.21-beta - 2026-10-10
+
+Status: In testing.
+
+- Fixed: DOOM rocket explosions did not light oil slicks (only a falling
+  oil lamp did). Oil slicks and gas pockets caught in a blast now catch
+  fire, as they do from a fire spell, and you are blamed for what the fire
+  kills. Goldenglow's beehives burn the same way.
+
 ## v0.1.20-beta - 2026-10-10
 
 Status: In testing on Skyrim 1.6.1170 (NGVO). DOOM guns drop hanging oil lamps
-and light the oil below, as intended. Gas pockets not tested yet.
+and light the oil below, as intended. Rocket blasts did not light oil
+slicks themselves (fixed in v0.1.21-beta).
 
 - Fixed: DOOM guns did not set off hanging oil lamps (or anything else that
   reacts to being hit). DOOM bullets now travel like arrows: they hit what
