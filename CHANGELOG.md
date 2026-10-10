@@ -114,9 +114,10 @@ v0.1.16-beta).
 
 ## v0.1.14-beta - 2026-10-10
 
-Status: Tested on Skyrim 1.6.1170 (NGVO). DOOM's menu Save, Load and Quit
-work in the minigame; Options and New Game not tried yet. DOOM's Read This!
-screens list F-key shortcuts, which do not work in the minigame yet.
+Status: Tested on Skyrim 1.6.1170 (NGVO). DOOM's menu works in the minigame:
+Save, Load, Quit, Options and New Game. DOOM's Read This! screens list
+F-key shortcuts, which did not work in the minigame yet (added in
+v0.1.19-beta).
 
 - New: DOOM's own menu in the minigame. Esc (Start or B on a controller)
   opens it: move through it with your movement keys or stick, Use or Fire
