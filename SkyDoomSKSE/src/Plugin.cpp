@@ -995,6 +995,11 @@ namespace
 			values.enemyDropChance,
 			values.worldStashes);
 
+		logger::info(
+			"SkyDoom settings: arcadeSkill={} arcadeMouseSensitivity={}",
+			values.arcadeSkill + 1,
+			values.arcadeMouseSensitivity);
+
 		std::scoped_lock lock(
 			g_settingsMutex);
 
@@ -10189,9 +10194,148 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 
         bool frameUploaded =
             false;
+
+        // Inventory reported at a level end, saved when LEVEL_DONE follows.
+        std::array<std::int32_t, SKYDOOM_ARCADE_INV_COUNT> pendingInventory{};
     };
 
     SkyDoomArcadeSession g_arcade;
+
+    /*
+        Minigame progress, saved with the Skyrim save (SKSE co-save record
+        'ARCD'): the level to start at next time and what the player
+        carries into it, as DOOM carries health, armour, weapons, ammo and
+        the backpack from one level to the next. Main thread.
+    */
+    struct SkyDoomArcadeProgress
+    {
+        std::int32_t episode =
+            1;
+
+        std::int32_t map =
+            1;
+
+        std::int32_t hasInventory =
+            0;
+
+        std::array<std::int32_t, SKYDOOM_ARCADE_INV_COUNT> inventory{};
+    };
+
+    SkyDoomArcadeProgress g_arcadeProgress;
+
+    constexpr std::uint32_t
+        kSkyDoomSerializationId =
+            'SKDM';
+
+    constexpr std::uint32_t
+        kSkyDoomArcadeRecord =
+            'ARCD';
+
+    constexpr std::uint32_t
+        kSkyDoomArcadeRecordVersion =
+            1;
+
+    constexpr const char*
+        kSkyDoomEpisodeNames[] = {
+            "Knee-Deep in the Dead",
+            "The Shores of Hell",
+            "Inferno",
+            "Thy Flesh Consumed"
+        };
+
+    // Skyrim's master music category (AudioCategoryMUS, the Music slider),
+    // muted while the minigame runs.
+    constexpr RE::FormID
+        kSkyrimMusicCategoryId =
+            0x00071E64;
+
+    // The music volume to restore, or below 0 when nothing is muted.
+    float g_arcadeSavedMusicVolume =
+        -1.0f;
+
+    void SaveSkyDoomArcadeProgress(
+        SKSE::SerializationInterface* a_intfc
+    )
+    {
+        if (
+            !a_intfc->WriteRecord(
+                kSkyDoomArcadeRecord,
+                kSkyDoomArcadeRecordVersion,
+                g_arcadeProgress
+            )
+        )
+        {
+            logger::error(
+                "SkyDoom arcade: could not save minigame progress"
+            );
+        }
+    }
+
+    void LoadSkyDoomArcadeProgress(
+        SKSE::SerializationInterface* a_intfc
+    )
+    {
+        g_arcadeProgress =
+            SkyDoomArcadeProgress{};
+
+        std::uint32_t type =
+            0;
+
+        std::uint32_t version =
+            0;
+
+        std::uint32_t length =
+            0;
+
+        while (
+            a_intfc->GetNextRecordInfo(
+                type,
+                version,
+                length
+            )
+        )
+        {
+            if (
+                type != kSkyDoomArcadeRecord ||
+                version != kSkyDoomArcadeRecordVersion ||
+                length != sizeof(SkyDoomArcadeProgress)
+            )
+            {
+                continue;
+            }
+
+            SkyDoomArcadeProgress loaded;
+
+            if (
+                a_intfc->ReadRecordData(loaded) == sizeof(loaded) &&
+                loaded.episode >= 1 &&
+                loaded.episode <= 4 &&
+                loaded.map >= 1 &&
+                loaded.map <= 9
+            )
+            {
+                g_arcadeProgress =
+                    loaded;
+            }
+        }
+
+        logger::info(
+            "SkyDoom arcade: progress E{}M{}{}",
+            g_arcadeProgress.episode,
+            g_arcadeProgress.map,
+            g_arcadeProgress.hasInventory ?
+                " with saved inventory" :
+                ""
+        );
+    }
+
+    void RevertSkyDoomArcadeProgress(
+        SKSE::SerializationInterface*
+    )
+    {
+        g_arcadeProgress =
+            SkyDoomArcadeProgress{};
+    }
 
     // The book open in the Book Menu is the arcade book.
     std::atomic_bool g_arcadeBookOpen{
@@ -10425,15 +10569,22 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
                 return SKYDOOM_ARCADE_TURN_RIGHT;
             case 0x0F:  // Tab
                 return SKYDOOM_ARCADE_AUTOMAP;
+            case 0x01:  // Esc
+                return SKYDOOM_ARCADE_BACK;
             default:
                 break;
             }
         }
 
-        // Gamepad Back.
+        // Gamepad Back shows the automap; B answers "no" at a level end.
         if (code == 271)
         {
             return SKYDOOM_ARCADE_AUTOMAP;
+        }
+
+        if (code == 277)
+        {
+            return SKYDOOM_ARCADE_BACK;
         }
 
         return 0;
@@ -10456,6 +10607,9 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 
         std::array<SkyDoom::Settings::Binding, SkyDoom::Settings::kActionCount> bindings;
 
+        float mouseSensitivity =
+            1.0f;
+
         {
             std::scoped_lock lock(
                 g_settingsMutex
@@ -10463,6 +10617,9 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 
             bindings =
                 g_settings.bindings;
+
+            mouseSensitivity =
+                g_settings.arcadeMouseSensitivity;
         }
 
         const auto& toggle =
@@ -10561,7 +10718,8 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
                     static_cast<float>(
                         move->mouseInputX
                     ) *
-                    kSkyDoomArcadeMouseTurnScale;
+                    kSkyDoomArcadeMouseTurnScale *
+                    mouseSensitivity;
 
                 continue;
             }
@@ -10735,6 +10893,24 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
                 SkyDoomArcadeSession{};
         }
 
+        if (g_arcadeSavedMusicVolume >= 0.0f)
+        {
+            if (
+                auto* music =
+                    RE::TESForm::LookupByID<RE::BGSSoundCategory>(
+                        kSkyrimMusicCategoryId
+                    )
+            )
+            {
+                music->SetCategoryVolume(
+                    g_arcadeSavedMusicVolume
+                );
+            }
+
+            g_arcadeSavedMusicVolume =
+                -1.0f;
+        }
+
         if (auto* queue = RE::UIMessageQueue::GetSingleton())
         {
             queue->AddMessage(
@@ -10900,10 +11076,26 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         state->skyrim.heartbeat_ms =
             GetTickCount64();
 
+        std::int32_t skill =
+            2;
+
+        {
+            std::scoped_lock lock(
+                g_settingsMutex
+            );
+
+            skill =
+                g_settings.arcadeSkill;
+        }
+
+        // Start at the saved level; DOOM skills are 1-5.
         std::wstring commandLine =
             L"\"" + g_doomExePath +
             L"\" -iwad \"" + g_doomWadPath +
-            L"\" -warp 1 1 -skill 3 -nomouse -window -skydoomarcade " +
+            L"\" -warp " + std::to_wstring(g_arcadeProgress.episode) +
+            L" " + std::to_wstring(g_arcadeProgress.map) +
+            L" -skill " + std::to_wstring(skill + 1) +
+            L" -nomouse -window -skydoomarcade " +
             SkyDoomUtf8ToWide(SKYDOOM_MAPPING_ARG) +
             L" " +
             SkyDoomUtf8ToWide(mappingName);
@@ -11019,6 +11211,39 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         g_arcadePhase =
             SkyDoomArcadePhase::kStarting;
 
+        // What the player carried out of the last level finished.
+        if (g_arcadeProgress.hasInventory)
+        {
+            for (
+                std::uint16_t field = 1;
+                field < SKYDOOM_ARCADE_INV_COUNT;
+                ++field
+            )
+            {
+                PushSkyDoomArcadeInput(
+                    SKYDOOM_INPUT_EVENT_ARCADE_SETUP,
+                    field,
+                    g_arcadeProgress.inventory[field]
+                );
+            }
+        }
+
+        // DOOM brings its own music.
+        if (
+            auto* music =
+                RE::TESForm::LookupByID<RE::BGSSoundCategory>(
+                    kSkyrimMusicCategoryId
+                )
+        )
+        {
+            g_arcadeSavedMusicVolume =
+                music->GetCategoryVolume();
+
+            music->SetCategoryVolume(
+                0.0f
+            );
+        }
+
         if (auto* queue = RE::UIMessageQueue::GetSingleton())
         {
             queue->AddMessage(
@@ -11029,8 +11254,14 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         }
 
         logger::info(
-            "SkyDoom arcade: started (pid {})",
-            processInfo.dwProcessId
+            "SkyDoom arcade: started (pid {}) at E{}M{}, skill {}{}",
+            processInfo.dwProcessId,
+            g_arcadeProgress.episode,
+            g_arcadeProgress.map,
+            skill + 1,
+            g_arcadeProgress.hasInventory ?
+                ", saved inventory" :
+                ""
         );
 
         return true;
@@ -11115,35 +11346,125 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
                 continue;
             }
 
-            if (event.weapon == SKYDOOM_ARCADE_STATUS_EPISODE_DONE)
+            switch (event.weapon)
             {
-                logger::info(
-                    "SkyDoom arcade: episode {} finished",
-                    event.damage
-                );
+            case SKYDOOM_ARCADE_STATUS_INVENTORY:
+                if (
+                    event.damage > 0 &&
+                    event.damage < static_cast<std::int32_t>(SKYDOOM_ARCADE_INV_COUNT)
+                )
+                {
+                    g_arcade.pendingInventory[event.damage] =
+                        event.angle_offset;
+                }
+                break;
+
+            case SKYDOOM_ARCADE_STATUS_LEVEL_DONE:
+                // Saved now, whether the player goes on or returns.
+                if (
+                    event.damage >= 1 &&
+                    event.damage <= 4 &&
+                    event.angle_offset >= 1 &&
+                    event.angle_offset <= 9
+                )
+                {
+                    g_arcadeProgress.episode =
+                        event.damage;
+
+                    g_arcadeProgress.map =
+                        event.angle_offset;
+
+                    g_arcadeProgress.hasInventory =
+                        1;
+
+                    g_arcadeProgress.inventory =
+                        g_arcade.pendingInventory;
+
+                    logger::info(
+                        "SkyDoom arcade: level finished, next E{}M{} (health {})",
+                        g_arcadeProgress.episode,
+                        g_arcadeProgress.map,
+                        g_arcadeProgress.inventory[SKYDOOM_ARCADE_INV_HEALTH]
+                    );
+                }
+                break;
+
+            case SKYDOOM_ARCADE_STATUS_RETURN:
+            {
+                const std::string message =
+                    std::format(
+                        "You return to Skyrim. Read the book again to play E{}M{}.",
+                        g_arcadeProgress.episode,
+                        g_arcadeProgress.map
+                    );
 
                 StopSkyDoomArcade(
-                    "episode finished",
-                    "Knee-Deep in the Dead is finished. You return to Skyrim."
+                    "the player returned to Skyrim",
+                    message.c_str()
                 );
 
                 return;
             }
 
-            if (event.weapon == SKYDOOM_ARCADE_STATUS_LEVEL_DONE)
+            case SKYDOOM_ARCADE_STATUS_EPISODE_DONE:
             {
+                // A new episode starts from scratch, as in DOOM.
+                const std::int32_t finished =
+                    event.damage;
+
+                const std::int32_t episodes =
+                    std::clamp(
+                        event.angle_offset,
+                        1,
+                        4
+                    );
+
+                std::string message;
+
+                if (
+                    finished >= 1 &&
+                    finished < episodes
+                )
+                {
+                    g_arcadeProgress =
+                        SkyDoomArcadeProgress{};
+
+                    g_arcadeProgress.episode =
+                        finished + 1;
+
+                    message =
+                        std::format(
+                            "{} is finished! Read the book again for episode {}: {}.",
+                            kSkyDoomEpisodeNames[finished - 1],
+                            finished + 1,
+                            kSkyDoomEpisodeNames[finished]
+                        );
+                }
+                else
+                {
+                    g_arcadeProgress =
+                        SkyDoomArcadeProgress{};
+
+                    message =
+                        "You have finished DOOM! Read the book again to start over.";
+                }
+
                 logger::info(
-                    "SkyDoom arcade: level finished, next E{}M{}",
-                    event.damage,
-                    event.angle_offset
+                    "SkyDoom arcade: episode {} of {} finished",
+                    finished,
+                    episodes
                 );
 
                 StopSkyDoomArcade(
-                    "level finished",
-                    "Level complete. You return to Skyrim."
+                    "episode finished",
+                    message.c_str()
                 );
 
                 return;
+            }
+
+            default:
+                break;
             }
         }
 
@@ -44648,6 +44969,18 @@ SKSEPluginLoad(
 		"{} v{} loaded",
 		plugin->GetName(),
 		plugin->GetVersion());
+
+	// SKYDOOM_ARCADE: minigame progress lives in the SKSE co-save.
+	if (const auto* serialization = SKSE::GetSerializationInterface()) {
+		serialization->SetUniqueID(
+			kSkyDoomSerializationId);
+		serialization->SetSaveCallback(
+			SaveSkyDoomArcadeProgress);
+		serialization->SetLoadCallback(
+			LoadSkyDoomArcadeProgress);
+		serialization->SetRevertCallback(
+			RevertSkyDoomArcadeProgress);
+	}
 
 	const auto* papyrus =
 		SKSE::GetPapyrusInterface();

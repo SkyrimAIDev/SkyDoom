@@ -101,6 +101,12 @@ namespace SkyDoom::Settings
 
 		// DOOM items placed in dungeons the first time they are entered.
 		bool worldStashes = true;
+
+		// [Minigame] DOOM skill, 0 = I'm too young to die ... 4 = Nightmare!
+		std::int32_t arcadeSkill = 2;  // Hurt me plenty
+
+		// Mouse turning speed in the minigame.
+		float arcadeMouseSensitivity = 1.0f;  // 0.25 - 4
 	};
 
 	[[nodiscard]] Values Defaults();

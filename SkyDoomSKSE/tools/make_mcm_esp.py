@@ -104,9 +104,9 @@ You have the feeling the book wants to be finished. Not read. Finished.
 <p align="left">
 Close this book to be pulled through.
 
-You will fight as you fight in DOOM, with whatever you can find. Your own weapons and armour stay behind.
+You will fight as you fight in DOOM, with whatever you can find. Your own weapons and armour stay behind, and what you find there stays there.
 
-Reach the exit of the level and the gate lets you go, back to where you stood.
+At the end of each level the gate asks whether you go on. Press Use to go deeper, or Esc (B on a controller) to return to where you stood. The book remembers where you stopped and what you carried.
 
 If the way back is ever lost, hold the Toggle DOOM mode key.
 </p>

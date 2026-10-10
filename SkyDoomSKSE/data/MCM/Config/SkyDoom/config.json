@@ -78,6 +78,15 @@
         { "text": "Dungeon stashes", "type": "header" },
         { "id": "bWorldStashes:Pickups", "text": "Stashes in dungeons", "type": "toggle", "help": "The first time you enter a dungeon area in a session, a few DOOM items appear on top of its chests, barrels and urns, chosen by what you are lowest on. Only while SkyDoom is enabled.", "valueOptions": { "sourceType": "ModSettingBool" } }
       ]
+    },
+    {
+      "pageDisplayName": "Minigame",
+      "cursorFillMode": "topToBottom",
+      "content": [
+        {"text": "DOOM minigame", "type": "header"},
+        {"id": "iArcadeSkill:Minigame", "text": "Difficulty", "type": "enum", "help": "DOOM skill level for the minigame (the book Knee-Deep in the Dead). Takes effect the next time you open the book. Default: Hurt me plenty.", "valueOptions": {"options": ["I'm too young to die", "Hey, not too rough", "Hurt me plenty", "Ultra-Violence", "Nightmare!"], "sourceType": "ModSettingInt"}},
+        {"id": "fArcadeMouseSensitivity:Minigame", "text": "Mouse sensitivity", "type": "slider", "help": "How fast the mouse turns you in the minigame. Default: 1.00x.", "valueOptions": {"min": 0.25, "max": 4.0, "step": 0.25, "formatString": "{2}x", "sourceType": "ModSettingFloat"}}
+      ]
     }
   ]
 }

@@ -242,6 +242,9 @@ namespace SkyDoom::Settings
 			ReadBool(a_ini, "Pickups", "bEnemyDrops", a_values.enemyDrops);
 			ReadInt(a_ini, "Pickups", "iEnemyDropChance", 0, 100, a_values.enemyDropChance);
 			ReadBool(a_ini, "Pickups", "bWorldStashes", a_values.worldStashes);
+
+			ReadInt(a_ini, "Minigame", "iArcadeSkill", 0, 4, a_values.arcadeSkill);
+			ReadFloat(a_ini, "Minigame", "fArcadeMouseSensitivity", 0.25f, 4.0f, a_values.arcadeMouseSensitivity);
 		}
 	}
 
