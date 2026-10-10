@@ -31868,6 +31868,8 @@ float screenX =
         - destructible objects (spider webs, barricades, ...) take DOOM's
           splash damage, 128 minus the distance in DOOM units, scaled by
           the MCM damage multiplier, like any DOOM weapon hit;
+        - SKYDOOM_FIRE: oil pools and gas pockets catch fire, see
+          IgniteSkyDoomFireTrap;
         - SKYDOOM_DOOR_BUSTER (MCM, off by default) opens doors and gates,
           see BustSkyDoomDoor and BustSkyDoomGate.
 
@@ -31884,7 +31886,8 @@ float screenX =
         kSkyDoomRocketBlastMaxObjects =
             64;
 
-    // Torch01: what fire traps (TrapExplosiveGas) take as fire on OnHit.
+    // Torch01: the blast's OnHit source, so scripts that check for fire
+    // see a burning torch.
     constexpr RE::FormID
         kSkyDoomBlastFireSourceId =
             0x0001D4EC;
@@ -31963,8 +31966,9 @@ float screenX =
         return object;
     }
 
-    // Calls a Papyrus function (or event) on a bound script object.
-    void CallSkyDoomScript(
+    // Calls a Papyrus function (or event) on a bound script object. The
+    // call is queued; false if the VM refused it.
+    bool CallSkyDoomScript(
         RE::BSTSmartPointer<RE::BSScript::Object>& a_object,
         const char* a_function,
         RE::BSScript::IFunctionArguments* a_args
@@ -31986,10 +31990,14 @@ float screenX =
         )
         {
             logger::warn(
-                "SkyDoom door buster: could not call {}",
+                "SkyDoom: could not call Papyrus function {}",
                 a_function
             );
+
+            return false;
         }
+
+        return true;
     }
 
     // True if the base object's model path contains any of a_words
@@ -32381,6 +32389,145 @@ float screenX =
         return opened;
     }
 
+    /*
+        SKYDOOM_FIRE
+
+        A rocket blast is fire, and lights what fire lights. Oil pools and
+        gas pockets run TrapExplosiveGas, or a script that extends it
+        (TrapOilPool, the Goldenglow beehives of TG02, the banner of
+        TGTQ04). Their destruction stages ignore weapon damage; the script
+        lights them when fire reaches them (a fire spell, a burning torch,
+        a falling oil lamp) by calling its own GasExplode(cause), which
+        damages the object from Papyrus and sets the cause, so the player
+        is blamed for what the fire kills. The blast's OnHit, with Torch01
+        as the source, did not light them in testing, so the blast calls
+        GasExplode directly, with the player as the cause. Only while the
+        script is in its "waiting" state: that is where its fire events
+        act, and the oil pool and beehive leave it once lit.
+    */
+    constexpr const char*
+        kSkyDoomFireTrapScript =
+            "TrapExplosiveGas";
+
+    constexpr const char*
+        kSkyDoomFireTrapReadyState =
+            "waiting";
+
+    // True if a_ref is a fire trap that was told to light.
+    bool IgniteSkyDoomFireTrap(
+        RE::TESObjectREFR* a_ref,
+        RE::PlayerCharacter* a_player
+    )
+    {
+        auto* vm =
+            RE::BSScript::Internal::VirtualMachine::GetSingleton();
+
+        auto* policy =
+            vm ?
+                vm->GetObjectHandlePolicy() :
+                nullptr;
+
+        if (
+            !a_ref ||
+            !a_player ||
+            !policy
+        )
+        {
+            return false;
+        }
+
+        const auto handle =
+            policy->GetHandleForObject(
+                a_ref->GetFormType(),
+                a_ref
+            );
+
+        if (handle == policy->EmptyHandle())
+        {
+            return false;
+        }
+
+        // The script object whose type is, or extends, TrapExplosiveGas.
+        RE::BSTSmartPointer<RE::BSScript::Object> trap;
+
+        {
+            RE::BSSpinLockGuard locker(
+                vm->attachedScriptsLock
+            );
+
+            const auto attached =
+                vm->attachedScripts.find(
+                    handle
+                );
+
+            if (attached != vm->attachedScripts.end())
+            {
+                for (auto& script : attached->second)
+                {
+                    auto* object =
+                        script.get();
+
+                    for (
+                        auto* type =
+                            object ?
+                                object->GetTypeInfo() :
+                                nullptr;
+                        type && !trap;
+                        type =
+                            type->GetParent()
+                    )
+                    {
+                        if (
+                            _stricmp(
+                                type->GetName(),
+                                kSkyDoomFireTrapScript
+                            ) == 0
+                        )
+                        {
+                            trap.reset(
+                                object
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        if (
+            !trap ||
+            !trap->IsConstructed() ||
+            _stricmp(
+                trap->currentState.c_str(),
+                kSkyDoomFireTrapReadyState
+            ) != 0
+        )
+        {
+            return false;
+        }
+
+        const bool lit =
+            CallSkyDoomScript(
+                trap,
+                "GasExplode",
+                RE::MakeFunctionArguments(
+                    static_cast<RE::TESObjectREFR*>(
+                        a_player
+                    )
+                )
+            );
+
+        if (lit)
+        {
+            logger::info(
+                "SkyDoom rocket blast: fire trap ref={:08X} script={} lit",
+                a_ref->GetFormID(),
+                trap->GetTypeInfo()->GetName()
+            );
+        }
+
+        return lit;
+    }
+
     void ApplySkyDoomRocketBlastToObjects(
         const RE::NiPoint3& a_explosion,
         float a_radius,
@@ -32513,9 +32660,14 @@ float screenX =
             auto* base =
                 hit.ref->GetBaseObject();
 
-            // SKYDOOM_OBJECT_HITS: a rocket blast is fire. Gas pockets and
-            // oil pools (TrapExplosiveGas) ignite on a hit "by" a torch,
-            // so name Torch01 as the source; other scripts just see a hit.
+            // SKYDOOM_FIRE: oil pools and gas pockets catch fire.
+            IgniteSkyDoomFireTrap(
+                hit.ref,
+                player
+            );
+
+            // SKYDOOM_OBJECT_HITS: everything in the blast is told it was
+            // hit, by fire (Torch01) for scripts that check.
             SendSkyDoomHitEvent(
                 hit.ref,
                 player,
