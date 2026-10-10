@@ -8,6 +8,20 @@ first. Each build is made from its `release/<version>` branch, and its
 Each section starts with a `Status:` line (how far the build has been
 tested), followed by the changes since the previous build.
 
+## v0.1.22-beta - 2026-10-10
+
+Status: In testing.
+
+- New: the plasma rifle and the BFG 9000 act on the world like rockets.
+  A plasma bolt breaks spider webs, drops hanging oil lamps and lights oil
+  slicks and gas pockets where it strikes. A BFG ball bursts like a rocket
+  explosion. Neither opens doors; Rockets bust doors stays with rockets.
+- Changed: plasma bolts and BFG balls fly like arrows, as DOOM bullets do
+  since v0.1.20-beta: they strike hanging oil lamps instead of passing
+  through them.
+- Fixed: rocket explosions now drop hanging oil lamps the same way DOOM
+  bullets do.
+
 ## v0.1.21-beta - 2026-10-10
 
 Status: Tested on Skyrim 1.6.1170 (NGVO). Rocket blasts lit a gas pocket and an
