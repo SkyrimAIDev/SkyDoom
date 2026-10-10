@@ -8,9 +8,29 @@ first. Each build is made from its `release/<version>` branch, and its
 Each section starts with a `Status:` line (how far the build has been
 tested), followed by the changes since the previous build.
 
-## v0.1.15-beta - 2026-10-10
+## v0.1.16-beta - 2026-10-10
 
 Status: In testing.
+
+- New: MCM Audio page. For SkyDoom combat: DOOM sound effects volume
+  (default 15, the maximum) and DOOM music volume (default 8), on DOOM's
+  0-15 scale, plus the DOOM music setting moved here from General. For
+  Skyrim's own sound while you fight as DOOM: mute Skyrim music under DOOM
+  music (on by default) and Skyrim effects volume as a share of your
+  Effects setting (default 100%). Your Skyrim volumes come back as soon as
+  DOOM combat ends, and in menus. The minigame keeps its own volume in
+  DOOM's Options menu.
+- Fixed: with the chainsaw selected, its idling sound kept playing after
+  leaving DOOM combat.
+
+## v0.1.15-beta - 2026-10-10
+
+Status: Tested on Skyrim 1.6.1170 (NGVO), new game: no book at the start;
+the book was in the Bleak Falls Barrow boss chest; the minigame played,
+saved and quit back to Skyrim, and the Golden Claw quest went on normally.
+Found that Skyrim's sound drowns out DOOM's in DOOM combat, and that the
+chainsaw idle sound kept playing outside DOOM combat (both addressed in
+v0.1.16-beta).
 
 - Changed: the minigame book is now found, not given. "Knee-Deep in the
   Dead" waits in the boss chest at the end of Bleak Falls Barrow, beside
