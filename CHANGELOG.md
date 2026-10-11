@@ -10,7 +10,8 @@ tested), followed by the changes since the previous build.
 
 ## v0.2.1-beta - 2026-10-11
 
-Status: In testing.
+Status: Tested on Skyrim 1.6.1170 (NGVO). The DOOM II minigame (Hell on Nirn)
+works.
 
 - Changed: the DOOM II book is now called Hell on Nirn, after the world
   Skyrim is set on. A copy you already have takes the new name. DOOM II in
