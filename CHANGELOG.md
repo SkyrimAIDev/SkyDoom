@@ -8,6 +8,21 @@ first. Each build is made from its `release/<version>` branch, and its
 Each section starts with a `Status:` line (how far the build has been
 tested), followed by the changes since the previous build.
 
+## v0.2.2-beta - 2026-10-11
+
+Status: In testing.
+
+- New: DOOM II in combat mode. On the MCM General page, set Combat game to
+  DOOM II (it takes effect the next time Skyrim starts; it needs
+  DOOM2.WAD). Combat mode then has DOOM II's super shotgun: the Shotgun key
+  takes it, and pressing it again switches to the shotgun, as in DOOM II.
+  Its 20 pellets hit like the shotgun's, break webs and train Archery, and
+  a super shotgun blast counts as two against locks. DOOM II's music plays,
+  and megaspheres can drop.
+- Changed: either WAD is enough. Without DOOM.WAD, combat mode runs on DOOM
+  II and only the DOOM II book opens; with DOOM II chosen but no DOOM2.WAD,
+  combat mode stays on DOOM.
+
 ## v0.2.1-beta - 2026-10-11
 
 Status: Tested on Skyrim 1.6.1170 (NGVO). The DOOM II minigame (Hell on Nirn)
