@@ -161,6 +161,16 @@ namespace
 	bool g_doomCombatIsDoom2 =
 		false;
 
+	// The MCM's Combat game when the guest was last (re)started.
+	bool g_doomCombatWantDoom2 =
+		false;
+
+	// The plugin's own sprites (rockets, explosions, pickups) decode from
+	// DOOM2.WAD when there is one: its lumps for them are byte-identical to
+	// DOOM.WAD's, and it also has the megasphere's, so a switch of Combat
+	// game never needs them decoded again.
+	std::wstring g_doomSpriteWadPath;
+
 	bool g_skyDoomPortablePathsInitialised =
 		false;
 
@@ -1344,6 +1354,14 @@ namespace
 				g_doom2WadPath :
 				g_doomWadPath;
 
+		g_doomCombatWantDoom2 =
+			wantDoom2;
+
+		g_doomSpriteWadPath =
+			!g_doom2WadPath.empty() ?
+				g_doom2WadPath :
+				g_doomWadPath;
+
 		if (
 			g_doomCombatWadPath.empty()) {
 			logger::error(
@@ -1953,7 +1971,7 @@ namespace
 
             CreateFileW(
 
-                g_doomCombatWadPath.c_str(),
+                g_doomSpriteWadPath.c_str(),
 
                 GENERIC_READ,
 
@@ -8325,6 +8343,119 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 			processInfo.dwProcessId);
 
 		return true;
+	}
+
+	/*
+		SKYDOOM_DOOM2_COMBAT: switching Combat game in the MCM takes effect
+		when the menu closes. The combat guest is stopped and started again
+		on the other WAD; it attaches to the same shared memory, as the
+		first one did. DOOM's own health, armour and ammo start fresh, as
+		in a new game. Main thread (queued from SkyDoom_MCM.OnConfigClose).
+	*/
+	void SwitchSkyDoomCombatGame()
+	{
+		if (
+			!g_doomProcess ||
+			g_doomCombatWadPath.empty()) {
+			return;
+		}
+
+		const bool wantDoom2 =
+			GetSkyDoomSettings().combatGame ==
+				SkyDoom::Settings::CombatGame::Doom2;
+
+		if (
+			wantDoom2 ==
+			g_doomCombatWantDoom2) {
+			return;
+		}
+
+		g_doomCombatWantDoom2 =
+			wantDoom2;
+
+		const bool doom2 =
+			!g_doom2WadPath.empty() &&
+			(wantDoom2 ||
+				g_doomWadPath.empty());
+
+		if (
+			doom2 ==
+			g_doomCombatIsDoom2) {
+			if (wantDoom2) {
+				logger::warn(
+					"SkyDoom: Combat game is DOOM II but DOOM2.WAD was not found; combat stays on DOOM");
+
+				RE::SendHUDMessage::ShowHUDMessage(
+					"DOOM II needs DOOM2.WAD, which was not found. DOOM combat stays on DOOM.");
+			}
+
+			return;
+		}
+
+		TerminateProcess(
+			g_doomProcess,
+			0);
+
+		WaitForSingleObject(
+			g_doomProcess,
+			5000);
+
+		CloseHandle(
+			g_doomProcess);
+
+		g_doomProcess =
+			nullptr;
+
+		// The old guest is gone without its own shutdown: nothing reads
+		// it as alive or in a level until the new one says so (the health
+		// bridge stays idle), its input is not replayed to the new one,
+		// and a frame it left half-written does not lock the overlay.
+		if (g_state) {
+			g_state->doom.running =
+				0;
+
+			g_state->doom.in_level =
+				0;
+
+			g_state->doom.heartbeat_ms =
+				0;
+
+			g_state->input.tail =
+				g_state->input.head;
+
+			if (
+				g_state->overlay.seq &
+				1u) {
+				++g_state->overlay.seq;
+			}
+		}
+
+		g_doomCombatIsDoom2 =
+			doom2;
+
+		g_doomCombatWadPath =
+			doom2 ?
+				g_doom2WadPath :
+				g_doomWadPath;
+
+		logger::info(
+			"SkyDoom combat game switched to {}",
+			doom2 ?
+				"DOOM II" :
+				"DOOM");
+
+		if (
+			!LaunchDoomGuest()) {
+			logger::error(
+				"Failed to relaunch hidden DOOM guest");
+
+			return;
+		}
+
+		RE::SendHUDMessage::ShowHUDMessage(
+			doom2 ?
+				"DOOM combat now runs DOOM II." :
+				"DOOM combat now runs DOOM.");
 	}
 
 	// ========================================================
@@ -21384,7 +21515,7 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 
             CreateFileW(
 
-                g_doomCombatWadPath.c_str(),
+                g_doomSpriteWadPath.c_str(),
 
                 GENERIC_READ,
 
@@ -46349,6 +46480,12 @@ SKSE::log::info(
 		RE::TESQuest*)
 	{
 		ReloadSkyDoomSettings();
+
+		// SKYDOOM_DOOM2_COMBAT
+		if (auto* tasks = SKSE::GetTaskInterface()) {
+			tasks->AddTask(
+				SwitchSkyDoomCombatGame);
+		}
 	}
 
 	bool RegisterSkyDoomPapyrus(
