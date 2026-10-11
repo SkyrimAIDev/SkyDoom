@@ -233,6 +233,10 @@ namespace SkyDoom::Settings
 			ReadInt(a_ini, "General", "iCombatMode", 0, 1, combatMode);
 			a_values.combatMode = static_cast<CombatMode>(combatMode);
 
+			auto combatGame = static_cast<std::int32_t>(a_values.combatGame);
+			ReadInt(a_ini, "General", "iCombatGame", 0, 1, combatGame);
+			a_values.combatGame = static_cast<CombatGame>(combatGame);
+
 			auto musicMode = static_cast<std::int32_t>(a_values.musicMode);
 			ReadInt(a_ini, "General", "iMusicMode", 0, 2, musicMode);
 			a_values.musicMode = static_cast<MusicMode>(musicMode);

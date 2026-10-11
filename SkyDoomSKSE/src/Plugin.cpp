@@ -149,9 +149,17 @@ namespace
 	std::wstring g_doomWorkingDirectory;
 	std::wstring g_doomWadPath;
 
-	// SKYDOOM_DOOM2: empty when DOOM2.WAD was not found; only the DOOM II
-	// minigame book needs it.
+	// SKYDOOM_DOOM2: empty when DOOM2.WAD was not found.
 	std::wstring g_doom2WadPath;
+
+	// SKYDOOM_DOOM2_COMBAT: the WAD the combat guest runs, and the one the
+	// plugin decodes its own sprites from (rockets, explosions, pickups):
+	// DOOM.WAD, or DOOM2.WAD when the MCM's Combat game is DOOM II. Either
+	// one alone is enough.
+	std::wstring g_doomCombatWadPath;
+
+	bool g_doomCombatIsDoom2 =
+		false;
 
 	bool g_skyDoomPortablePathsInitialised =
 		false;
@@ -1267,7 +1275,7 @@ namespace
 			g_skyDoomPortablePathsInitialised) {
 			return
 				!g_doomExePath.empty() &&
-				!g_doomWadPath.empty();
+				!g_doomCombatWadPath.empty();
 		}
 
 		g_skyDoomPortablePathsInitialised =
@@ -1295,7 +1303,7 @@ namespace
 			return false;
 		}
 
-		// SKYDOOM_DOOM2: optional.
+		// SKYDOOM_DOOM2: each WAD is optional, as long as there is one.
 		if (
 			SkyDoomDiscoverDoom2Wad(
 				g_doom2WadPath)) {
@@ -1309,12 +1317,46 @@ namespace
 		}
 
 		if (
-			!SkyDoomDiscoverDoomWad(
+			SkyDoomDiscoverDoomWad(
 				g_doomWadPath)) {
+			logger::info(
+				"SkyDoom public beta DOOM.WAD: {}",
+				SkyDoomWideToUtf8(
+					g_doomWadPath));
+		} else {
+			logger::warn(
+				"SkyDoom: DOOM.WAD was not found in the user's Steam libraries; the DOOM book will not open");
+		}
+
+		// SKYDOOM_DOOM2_COMBAT: the MCM's Combat game, or whichever WAD
+		// there is.
+		const bool wantDoom2 =
+			GetSkyDoomSettings().combatGame ==
+				SkyDoom::Settings::CombatGame::Doom2;
+
+		g_doomCombatIsDoom2 =
+			!g_doom2WadPath.empty() &&
+			(wantDoom2 ||
+				g_doomWadPath.empty());
+
+		g_doomCombatWadPath =
+			g_doomCombatIsDoom2 ?
+				g_doom2WadPath :
+				g_doomWadPath;
+
+		if (
+			g_doomCombatWadPath.empty()) {
 			logger::error(
-				"SkyDoom public beta: DOOM.WAD was not found in the user's Steam libraries");
+				"SkyDoom public beta: neither DOOM.WAD nor DOOM2.WAD was found");
 
 			return false;
+		}
+
+		if (
+			wantDoom2 &&
+			!g_doomCombatIsDoom2) {
+			logger::warn(
+				"SkyDoom: Combat game is DOOM II but DOOM2.WAD was not found; combat uses DOOM");
 		}
 
 		logger::info(
@@ -1323,9 +1365,10 @@ namespace
 				g_doomExePath));
 
 		logger::info(
-			"SkyDoom public beta DOOM.WAD: {}",
-			SkyDoomWideToUtf8(
-				g_doomWadPath));
+			"SkyDoom combat game: {}",
+			g_doomCombatIsDoom2 ?
+				"DOOM II" :
+				"DOOM");
 
 		return true;
 	}
@@ -1910,7 +1953,7 @@ namespace
 
             CreateFileW(
 
-                g_doomWadPath.c_str(),
+                g_doomCombatWadPath.c_str(),
 
                 GENERIC_READ,
 
@@ -8148,13 +8191,16 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 			L"\" -iwad \"";
 
 		commandLine +=
-			g_doomWadPath;
+			g_doomCombatWadPath;
 
 		commandLine +=
 			L"\"";
 
+		// SKYDOOM_DOOM2_COMBAT: DOOM II's -warp takes the map alone.
 		commandLine +=
-			L" -warp 1 1";
+			g_doomCombatIsDoom2 ?
+				L" -warp 1" :
+				L" -warp 1 1";
 
 		commandLine +=
 			L" -nomonsters";
@@ -15460,6 +15506,11 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         return best;
     }
 
+    // DOOM's wp_supershotgun (g_state->doom.weapon is DOOM's weapontype_t).
+    constexpr std::int32_t
+        kSkyDoomDoomWeaponSuperShotgun =
+            8;
+
     void BashSkyDoomLockInFront()
     {
         if (!g_skyDoomShotgunBreaksLocks)
@@ -15529,7 +15580,13 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
             return;
         }
 
-        ++state.blasts;
+        // SKYDOOM_DOOM2_COMBAT: the super shotgun fires both barrels and
+        // counts as two blasts.
+        state.blasts +=
+            g_state &&
+            g_state->doom.weapon == kSkyDoomDoomWeaponSuperShotgun ?
+                2 :
+                1;
 
         // Like a broken pick, any blast can be seen; one report per lock.
         if (!state.crimeReported)
@@ -21327,7 +21384,7 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 
             CreateFileW(
 
-                g_doomWadPath.c_str(),
+                g_doomCombatWadPath.c_str(),
 
                 GENERIC_READ,
 

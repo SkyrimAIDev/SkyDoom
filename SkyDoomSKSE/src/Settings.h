@@ -56,6 +56,13 @@ namespace SkyDoom::Settings
 		Always = 1,       // whenever SkyDoom is enabled
 	};
 
+	// Which DOOM the combat guest runs (MCM enum index).
+	enum class CombatGame : std::int32_t
+	{
+		Doom = 0,
+		Doom2 = 1,  // the super shotgun; needs DOOM2.WAD
+	};
+
 	// When DOOM music may play (MCM enum index).
 	enum class MusicMode : std::int32_t
 	{
@@ -80,6 +87,7 @@ namespace SkyDoom::Settings
 		// [General]
 		bool enabled = true;
 		CombatMode combatMode = CombatMode::WeaponDrawn;
+		CombatGame combatGame = CombatGame::Doom;
 		MusicMode musicMode = MusicMode::Combat;
 		bool keepStaminaFull = true;
 
