@@ -106,7 +106,7 @@
 
         {"text": "The books", "type": "header"},
         {"text": "Give me the book", "type": "text", "help": "The book Knee-Deep in the Dead, which starts the DOOM minigame, is found at the end of Bleak Falls Barrow, in the boss chest beside the Draugr who carries the Dragonstone. Select this to get it now if you are past that point or skip the main quest.", "action": {"type": "CallFunction", "function": "GiveBook"}},
-        {"text": "Give me the DOOM II book", "type": "text", "help": "The book Hell on Earth, which starts the DOOM II minigame, is found in Ustengrav, in the boss chest on the way to the Horn of Jurgen Windcaller. Select this to get it now if you are past that point or skip the main quest. DOOM II needs DOOM2.WAD (General page).", "action": {"type": "CallFunction", "function": "GiveDoom2Book"}}
+        {"text": "Give me the DOOM II book", "type": "text", "help": "The book Hell on Nirn, which starts the DOOM II minigame, is found in Ustengrav, in the boss chest on the way to the Horn of Jurgen Windcaller. Select this to get it now if you are past that point or skip the main quest. DOOM II needs DOOM2.WAD (General page).", "action": {"type": "CallFunction", "function": "GiveDoom2Book"}}
       ]
     }
   ]

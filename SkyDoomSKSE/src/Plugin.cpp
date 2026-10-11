@@ -10261,7 +10261,7 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 
         The minigame plays DOOM or DOOM II, each from its own book with
         its own progress and DOOM saves: "Knee-Deep in the Dead" (found in
-        Bleak Falls Barrow) and "Hell on Earth" (found in Ustengrav). DOOM
+        Bleak Falls Barrow) and "Hell on Nirn" (found in Ustengrav). DOOM
         II needs DOOM2.WAD: [General] sDoom2WadPath, or the classic one in
         the user's Steam libraries (see SkyDoomDiscoverDoom2Wad).
     */
@@ -10284,7 +10284,7 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
     constexpr const char*
         kSkyDoomArcadeBookNames[kSkyDoomArcadeGameCount] = {
             "Knee-Deep in the Dead",
-            "Hell on Earth"
+            "Hell on Nirn"
         };
 
     constexpr const char*
@@ -11914,7 +11914,7 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
                         SkyDoomArcadeProgress{};
 
                     g_arcade.finishedMessage =
-                        "You have finished DOOM II! Read Hell on Earth again to start over.";
+                        "You have finished DOOM II! Read Hell on Nirn again to start over.";
 
                     logger::info(
                         "SkyDoom arcade: DOOM II finished"
@@ -12433,7 +12433,7 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
     }
 
     // Book Menu: closing a minigame book ("Knee-Deep in the Dead" or
-    // "Hell on Earth") starts its game.
+    // "Hell on Nirn") starts its game.
     class SkyDoomArcadeBookSink final :
         public RE::BSTEventSink<RE::MenuOpenCloseEvent>
     {
@@ -12519,7 +12519,7 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         - "Knee-Deep in the Dead" (DOOM): the boss chest at the end of
           Bleak Falls Barrow (the BossContainer of BleakFallsBarrowLocation,
           beside the Draugr Overlord who carries the Dragonstone).
-        - "Hell on Earth" (DOOM II): the boss chest in Ustengrav, where the
+        - "Hell on Nirn" (DOOM II): the boss chest in Ustengrav, where the
           next main quest step (The Horn of Jurgen Windcaller) leads.
     */
     constexpr RE::FormID

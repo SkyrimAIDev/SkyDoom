@@ -10,7 +10,7 @@ as Better Third Person Selection and TrueHUD ship):
     SkyUI's SKI_PlayerLoadGameAlias script so the menu re-registers on load.
 
 and two books, "Knee-Deep in the Dead" (SkyDoom_ArcadeBook, 0x801) and
-"Hell on Earth" (SkyDoom_ArcadeBook2, 0x802). The SKSE plugin puts them in
+"Hell on Nirn" (SkyDoom_ArcadeBook2, 0x802). The SKSE plugin puts them in
 boss chests (Bleak Falls Barrow, Ustengrav) and starts the DOOM or DOOM II
 minigame when one is closed after reading (SKYDOOM_ARCADE, SKYDOOM_DOOM2).
 
@@ -119,7 +119,7 @@ If the way back is ever lost, hold the Toggle DOOM mode key.
 
 BOOK2_TEXT = """<p align="center">
 <font size="36">HELL
-ON EARTH</font>
+ON NIRN</font>
 
 
 A record of the
@@ -131,7 +131,7 @@ This book was not written. It was left behind.
 
 Its pages smell of smoke and hot iron. Between the lines lies a city that is not Solitude or Markarth, its towers burning, its streets full of the same things that came through the gate before. This time they did not stop at the hangar.
 
-Somewhere at the end of it is a wall with a face. It is waiting.
+Somewhere at the end of it is a wall with a face. It is waiting, and it has heard of Nirn.
 </p>
 [pagebreak]
 <p align="left">
@@ -177,7 +177,7 @@ def plugin():
     # Top-level groups in the game's order: BOOK comes before QUST.
     books = book(BOOK_FORM_ID, "SkyDoom_ArcadeBook", "Knee-Deep in the Dead",
                  "Clutter\\Books\\BasicBook07.nif", BOOK_TEXT)
-    books += book(BOOK2_FORM_ID, "SkyDoom_ArcadeBook2", "Hell on Earth",
+    books += book(BOOK2_FORM_ID, "SkyDoom_ArcadeBook2", "Hell on Nirn",
                   "Clutter\\Books\\BasicBook03.nif", BOOK2_TEXT)
     return tes4 + group(b"BOOK", books) + group(b"QUST", quest())
 
