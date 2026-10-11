@@ -878,6 +878,11 @@ int SkyDoom_ArcadeModeActive(void)
     return skydoom_arcade_mode;
 }
 
+int SkyDoom_ArcadePromptActive(void)
+{
+    return skydoom_arcade_mode && skydoom_arcade_prompt;
+}
+
 /* The combat guest outside DOOM combat (or without a live host). */
 int SkyDoom_GuestQuiet(void)
 {
@@ -1061,14 +1066,28 @@ int SkyDoom_ArcadeLevelDone(int episode, int next_map)
         SkyDoom_ArcadeReleaseAll();
         skydoom_arcade_prompt = 1;
 
-        M_snprintf(
-            skydoom_arcade_prompt_text,
-            sizeof(skydoom_arcade_prompt_text),
-            "LEVEL COMPLETE!\n\n"
-            "USE: GO ON TO E%dM%d\n"
-            "ESC OR B: RETURN TO SKYRIM",
-            episode,
-            next_map);
+        /* SKYDOOM_DOOM2: DOOM II's levels are MAP01-MAP32. */
+        if (gamemode == commercial)
+        {
+            M_snprintf(
+                skydoom_arcade_prompt_text,
+                sizeof(skydoom_arcade_prompt_text),
+                "LEVEL COMPLETE!\n\n"
+                "USE: GO ON TO MAP%02d\n"
+                "ESC OR B: RETURN TO SKYRIM",
+                next_map);
+        }
+        else
+        {
+            M_snprintf(
+                skydoom_arcade_prompt_text,
+                sizeof(skydoom_arcade_prompt_text),
+                "LEVEL COMPLETE!\n\n"
+                "USE: GO ON TO E%dM%d\n"
+                "ESC OR B: RETURN TO SKYRIM",
+                episode,
+                next_map);
+        }
 
         M_SkyDoomStartMessage(
             skydoom_arcade_prompt_text,
@@ -1079,7 +1098,12 @@ int SkyDoom_ArcadeLevelDone(int episode, int next_map)
     return 1;
 }
 
-/* F_Ticker: the episode's ending text has been shown. */
+/*
+    F_Ticker: the episode's ending text has been shown. In DOOM II
+    (SKYDOOM_DOOM2) that is MAP30's, and the cast of monsters follows: the
+    host keeps DOOM running, so the session is not marked finished and
+    Quit in DOOM's menu still returns to Skyrim.
+*/
 void SkyDoom_ArcadeEpisodeDone(void)
 {
     if (!skydoom_arcade_mode || skydoom_state == NULL ||
@@ -1088,7 +1112,11 @@ void SkyDoom_ArcadeEpisodeDone(void)
         return;
     }
 
-    skydoom_arcade_finished = 1;
+    if (gamemode != commercial)
+    {
+        skydoom_arcade_finished = 1;
+    }
+
     SkyDoom_ArcadeReleaseAll();
     M_SaveDefaults();
     SkyDoom_PushCombatEvent(
@@ -4913,6 +4941,12 @@ void SkyDoom_ArcadeEpisodeDone(void)
 
 
 int SkyDoom_ArcadeModeActive(void)
+{
+    return 0;
+}
+
+
+int SkyDoom_ArcadePromptActive(void)
 {
     return 0;
 }

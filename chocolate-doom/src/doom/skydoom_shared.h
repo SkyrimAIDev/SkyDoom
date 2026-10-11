@@ -183,6 +183,9 @@ void SkyDoom_ArcadeEpisodeDone(void);
 /* SKYDOOM_ARCADE: running as the minigame (-skydoomarcade). */
 int SkyDoom_ArcadeModeActive(void);
 
+/* SKYDOOM_DOOM2: the minigame's level-end question is up. */
+int SkyDoom_ArcadePromptActive(void);
+
 /* M_QuitResponse: Quit Game returns to Skyrim; returns 1 if handled. */
 int SkyDoom_ArcadeQuit(void);
 

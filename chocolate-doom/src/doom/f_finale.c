@@ -187,7 +187,12 @@ void F_Ticker (void)
       if (i < MAXPLAYERS)
       {	
 	if (gamemap == 30)
+	{
+	  // SKYDOOM_DOOM2: the minigame's DOOM II is finished; the cast
+	  // plays on until the player quits through the menu.
+	  SkyDoom_ArcadeEpisodeDone();
 	  F_StartCast ();
+	}
 	else
 	  gameaction = ga_worlddone;
       }
@@ -258,7 +263,14 @@ void F_TextWrite (void)
     }
 
     V_MarkRect (0, 0, SCREENWIDTH, SCREENHEIGHT);
-    
+
+    // SKYDOOM_DOOM2: DOOM II's text screens come before the minigame's
+    // level-end question; the text is left off while the question is up.
+    if (SkyDoom_ArcadePromptActive())
+    {
+	return;
+    }
+
     // draw some of the text onto the screen
     cx = 10;
     cy = 10;
