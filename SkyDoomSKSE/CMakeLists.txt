@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.21)
 
 project(
     SkyDoomSKSE
-    VERSION 0.1.0
+    VERSION 0.2.1
     DESCRIPTION "SkyDoom SKSE bridge"
     LANGUAGES CXX
 )
