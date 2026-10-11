@@ -8,9 +8,18 @@ first. Each build is made from its `release/<version>` branch, and its
 Each section starts with a `Status:` line (how far the build has been
 tested), followed by the changes since the previous build.
 
-## v0.2.0-beta - 2026-10-11
+## v0.2.1-beta - 2026-10-11
 
 Status: In testing.
+
+- Changed: the DOOM II book is now called Hell on Nirn, after the world
+  Skyrim is set on. A copy you already have takes the new name. DOOM II in
+  combat mode (the super shotgun) follows in the next build.
+
+## v0.2.0-beta - 2026-10-11
+
+Status: Replaced by v0.2.1-beta before testing (the DOOM II book renamed
+Hell on Nirn).
 
 Phase 2: DOOM II. This build adds DOOM II to the minigame; DOOM II in
 combat mode (the super shotgun) follows in the next build.
