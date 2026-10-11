@@ -8,9 +8,20 @@ first. Each build is made from its `release/<version>` branch, and its
 Each section starts with a `Status:` line (how far the build has been
 tested), followed by the changes since the previous build.
 
-## v0.2.2-beta - 2026-10-11
+## v0.2.3-beta - 2026-10-11
 
 Status: In testing.
+
+- Changed: switching Combat game in the MCM takes effect as soon as you
+  close the menu, with no restart. DOOM restarts on the other game in the
+  background (a message says which), and its health, armor and ammo start
+  fresh.
+
+## v0.2.2-beta - 2026-10-11
+
+Status: In testing on Skyrim 1.6.1170 (NGVO). Combat game DOOM II only took
+effect after restarting Skyrim (it now switches when the MCM closes, in
+v0.2.3-beta).
 
 - New: DOOM II in combat mode. On the MCM General page, set Combat game to
   DOOM II (it takes effect the next time Skyrim starts; it needs
