@@ -8,6 +8,26 @@ first. Each build is made from its `release/<version>` branch, and its
 Each section starts with a `Status:` line (how far the build has been
 tested), followed by the changes since the previous build.
 
+## v0.2.0-beta - 2026-10-11
+
+Status: In testing.
+
+Phase 2: DOOM II. This build adds DOOM II to the minigame; DOOM II in
+combat mode (the super shotgun) follows in the next build.
+
+- New: a second minigame book, Hell on Earth, plays DOOM II. Find it in the
+  boss chest in Ustengrav, where The Horn of Jurgen Windcaller leads, or
+  get it from the MCM Minigame page: Give me the DOOM II book. It keeps its
+  own progress (MAP01 to MAP32, with what you carry) and its own DOOM
+  saves; your DOOM progress and saves are unchanged.
+- DOOM II's story screens come up between levels as in DOOM II, before the
+  question whether to go on. After MAP30 the cast of monsters plays; open
+  DOOM's menu and quit to return to Skyrim, and the book starts over.
+- DOOM II needs DOOM2.WAD, the classic DOOM II (v1.9). SkyDoom finds it in
+  your Steam libraries (DOOM + DOOM II, or the older Steam DOOM II); for
+  other installs set DOOM2.WAD location on the MCM General page. Without it
+  the book's pages are blank.
+
 ## v0.1.22-beta - 2026-10-10
 
 Status: Tested on Skyrim 1.6.1170 (NGVO). In Bleak Falls Barrow, plasma and the
