@@ -221,6 +221,7 @@ namespace SkyDoom::Settings
 
 			ReadBool(a_ini, "Controls", "bBlockSkyrimInput", a_values.blockSkyrimInput);
 			ReadPath(a_ini, "General", "sWadPath", a_values.wadPath);
+			ReadPath(a_ini, "General", "sDoom2WadPath", a_values.doom2WadPath);
 
 			ReadBool(a_ini, "General", "bEnabled", a_values.enabled);
 			ReadBool(a_ini, "General", "bKeepStaminaFull", a_values.keepStaminaFull);

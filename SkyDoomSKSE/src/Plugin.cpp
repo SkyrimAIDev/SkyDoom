@@ -143,10 +143,15 @@ namespace
 	//   SKYDOOM_DOOM_EXE  = full path to chocolate-doom.exe
 	//                       (only with the SKYDOOM_DEV_OVERRIDES CMake option)
 	//   [General] sWadPath in the SkyDoom MCM settings = full path to DOOM.WAD
+	//   [General] sDoom2WadPath = full path to DOOM2.WAD (SKYDOOM_DOOM2)
 
 	std::wstring g_doomExePath;
 	std::wstring g_doomWorkingDirectory;
 	std::wstring g_doomWadPath;
+
+	// SKYDOOM_DOOM2: empty when DOOM2.WAD was not found; only the DOOM II
+	// minigame book needs it.
+	std::wstring g_doom2WadPath;
 
 	bool g_skyDoomPortablePathsInitialised =
 		false;
@@ -1186,6 +1191,76 @@ namespace
 	}
 
 
+	/*
+		SKYDOOM_DOOM2: the classic DOOM II IWAD (v1.9), which Chocolate Doom
+		plays as it is. The DOOM + DOOM II release (2024) keeps it in
+		base\doom2 of its Steam folder, still named "Ultimate Doom"; the
+		older Steam DOOM II has it in base. The doom2.wad in the release's
+		rerelease folder is a different, extended IWAD and is not used.
+	*/
+	bool SkyDoomDiscoverDoom2Wad(
+		std::wstring& a_wadPath)
+	{
+		a_wadPath.clear();
+
+		const auto overridePath =
+			GetSkyDoomSettings().doom2WadPath;
+
+		if (!overridePath.empty()) {
+			if (
+				SkyDoomFileExists(
+					overridePath)) {
+				a_wadPath =
+					overridePath;
+
+				return true;
+			}
+
+			logger::warn(
+				"SkyDoom settings: sDoom2WadPath does not exist, searching Steam instead: {}",
+				SkyDoomWideToUtf8(
+					overridePath));
+		}
+
+		const auto steamRoots =
+			SkyDoomCollectSteamRoots();
+
+		for (
+			const auto& root :
+			steamRoots) {
+			const std::array<std::wstring, 4>
+				candidates{
+					SkyDoomJoinPath(
+						root,
+						L"steamapps\\common\\Ultimate Doom\\base\\doom2\\DOOM2.WAD"),
+					SkyDoomJoinPath(
+						root,
+						L"steamapps\\common\\DOOM + DOOM II\\base\\doom2\\DOOM2.WAD"),
+					SkyDoomJoinPath(
+						root,
+						L"steamapps\\common\\Doom 2\\base\\DOOM2.WAD"),
+					SkyDoomJoinPath(
+						root,
+						L"steamapps\\common\\Doom 2\\DOOM2.WAD")
+				};
+
+			for (
+				const auto& candidate :
+				candidates) {
+				if (
+					SkyDoomFileExists(
+						candidate)) {
+					a_wadPath =
+						candidate;
+
+					return true;
+				}
+			}
+		}
+
+		return false;
+	}
+
 	bool InitialiseSkyDoomPortablePaths()
 	{
 		if (
@@ -1218,6 +1293,19 @@ namespace
 				"SkyDoom public beta: could not determine Chocolate Doom working directory");
 
 			return false;
+		}
+
+		// SKYDOOM_DOOM2: optional.
+		if (
+			SkyDoomDiscoverDoom2Wad(
+				g_doom2WadPath)) {
+			logger::info(
+				"SkyDoom DOOM2.WAD: {}",
+				SkyDoomWideToUtf8(
+					g_doom2WadPath));
+		} else {
+			logger::info(
+				"SkyDoom: DOOM2.WAD not found; the DOOM II book will not open");
 		}
 
 		if (
@@ -10168,9 +10256,49 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         kSkyDoomPluginFile =
             "SkyDoom.esp";
 
+    /*
+        SKYDOOM_DOOM2
+
+        The minigame plays DOOM or DOOM II, each from its own book with
+        its own progress and DOOM saves: "Knee-Deep in the Dead" (found in
+        Bleak Falls Barrow) and "Hell on Earth" (found in Ustengrav). DOOM
+        II needs DOOM2.WAD: [General] sDoom2WadPath, or the classic one in
+        the user's Steam libraries (see SkyDoomDiscoverDoom2Wad).
+    */
+    enum class SkyDoomArcadeGame : std::uint32_t
+    {
+        kDoom = 0,
+        kDoom2 = 1
+    };
+
+    constexpr std::size_t
+        kSkyDoomArcadeGameCount =
+            2;
+
     constexpr RE::FormID
-        kSkyDoomArcadeBookLocalId =
-            0x801;
+        kSkyDoomArcadeBookLocalIds[kSkyDoomArcadeGameCount] = {
+            0x801,
+            0x802
+        };
+
+    constexpr const char*
+        kSkyDoomArcadeBookNames[kSkyDoomArcadeGameCount] = {
+            "Knee-Deep in the Dead",
+            "Hell on Earth"
+        };
+
+    constexpr const char*
+        kSkyDoomArcadeGameNames[kSkyDoomArcadeGameCount] = {
+            "DOOM",
+            "DOOM II"
+        };
+
+    constexpr std::size_t SkyDoomArcadeGameIndex(
+        SkyDoomArcadeGame a_game
+    )
+    {
+        return static_cast<std::size_t>(a_game);
+    }
 
     // Time allowed for DOOM to show its first frame.
     constexpr std::uint64_t
@@ -10266,15 +10394,23 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 
         // Inventory reported at a level end, saved when LEVEL_DONE follows.
         std::array<std::int32_t, SKYDOOM_ARCADE_INV_COUNT> pendingInventory{};
+
+        SkyDoomArcadeGame game =
+            SkyDoomArcadeGame::kDoom;
+
+        // SKYDOOM_DOOM2: DOOM II's ending plays on (the cast of monsters);
+        // shown when the player then returns to Skyrim.
+        std::string finishedMessage;
     };
 
     SkyDoomArcadeSession g_arcade;
 
     /*
-        Minigame progress, saved with the Skyrim save (SKSE co-save record
-        'ARCD'): the level to start at next time and what the player
-        carries into it, as DOOM carries health, armour, weapons, ammo and
-        the backpack from one level to the next. Main thread.
+        Minigame progress, saved with the Skyrim save (SKSE co-save records
+        'ARCD' for DOOM, 'ARC2' for DOOM II): the level to start at next
+        time and what the player carries into it, as DOOM carries health,
+        armour, weapons, ammo and the backpack from one level to the next.
+        Main thread.
     */
     struct SkyDoomArcadeProgress
     {
@@ -10290,33 +10426,92 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         std::array<std::int32_t, SKYDOOM_ARCADE_INV_COUNT> inventory{};
     };
 
-    SkyDoomArcadeProgress g_arcadeProgress;
+    // By SkyDoomArcadeGame.
+    std::array<SkyDoomArcadeProgress, kSkyDoomArcadeGameCount> g_arcadeProgress;
+
+    SkyDoomArcadeProgress& SkyDoomArcadeProgressFor(
+        SkyDoomArcadeGame a_game
+    )
+    {
+        return
+            g_arcadeProgress[
+                SkyDoomArcadeGameIndex(
+                    a_game
+                )
+            ];
+    }
+
+    // A level the game has: E1M1-E4M9 in DOOM, MAP01-MAP32 in DOOM II.
+    bool SkyDoomArcadeLevelValid(
+        SkyDoomArcadeGame a_game,
+        std::int32_t a_episode,
+        std::int32_t a_map
+    )
+    {
+        if (a_game == SkyDoomArcadeGame::kDoom2)
+        {
+            return
+                a_episode == 1 &&
+                a_map >= 1 &&
+                a_map <= 32;
+        }
+
+        return
+            a_episode >= 1 &&
+            a_episode <= 4 &&
+            a_map >= 1 &&
+            a_map <= 9;
+    }
+
+    // "E1M3" in DOOM, "MAP07" in DOOM II.
+    std::string SkyDoomArcadeLevelName(
+        SkyDoomArcadeGame a_game,
+        const SkyDoomArcadeProgress& a_progress
+    )
+    {
+        return
+            a_game == SkyDoomArcadeGame::kDoom2 ?
+                std::format(
+                    "MAP{:02}",
+                    a_progress.map
+                ) :
+                std::format(
+                    "E{}M{}",
+                    a_progress.episode,
+                    a_progress.map
+                );
+    }
 
     constexpr std::uint32_t
         kSkyDoomSerializationId =
             'SKDM';
 
+    // Progress records, by SkyDoomArcadeGame: 'ARCD' (DOOM, as before
+    // DOOM II) and 'ARC2' (DOOM II).
     constexpr std::uint32_t
-        kSkyDoomArcadeRecord =
-            'ARCD';
+        kSkyDoomArcadeRecords[kSkyDoomArcadeGameCount] = {
+            'ARCD',
+            'ARC2'
+        };
 
     constexpr std::uint32_t
         kSkyDoomArcadeRecordVersion =
             1;
 
-    // Whether the book has been put in the Bleak Falls Barrow chest (or
-    // given from the MCM) for this character.
+    // Whether a book has been put in its chest (or given from the MCM) for
+    // this character, by SkyDoomArcadeGame: 'BOOK' (DOOM), 'BOK2' (DOOM II).
     constexpr std::uint32_t
-        kSkyDoomBookRecord =
-            'BOOK';
+        kSkyDoomBookRecords[kSkyDoomArcadeGameCount] = {
+            'BOOK',
+            'BOK2'
+        };
 
     constexpr std::uint32_t
         kSkyDoomBookRecordVersion =
             1;
 
     // Main thread; saved in the co-save.
-    bool g_arcadeBookPlaced =
-        false;
+    std::array<bool, kSkyDoomArcadeGameCount> g_arcadeBookPlaced{};
 
     constexpr const char*
         kSkyDoomEpisodeNames[] = {
@@ -10340,33 +10535,42 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         SKSE::SerializationInterface* a_intfc
     )
     {
-        if (
-            !a_intfc->WriteRecord(
-                kSkyDoomArcadeRecord,
-                kSkyDoomArcadeRecordVersion,
-                g_arcadeProgress
-            )
+        for (
+            std::size_t game = 0;
+            game < kSkyDoomArcadeGameCount;
+            ++game
         )
         {
-            logger::error(
-                "SkyDoom arcade: could not save minigame progress"
-            );
-        }
-
-        const std::int32_t bookPlaced =
-            g_arcadeBookPlaced ? 1 : 0;
-
-        if (
-            !a_intfc->WriteRecord(
-                kSkyDoomBookRecord,
-                kSkyDoomBookRecordVersion,
-                bookPlaced
+            if (
+                !a_intfc->WriteRecord(
+                    kSkyDoomArcadeRecords[game],
+                    kSkyDoomArcadeRecordVersion,
+                    g_arcadeProgress[game]
+                )
             )
-        )
-        {
-            logger::error(
-                "SkyDoom arcade: could not save the book state"
-            );
+            {
+                logger::error(
+                    "SkyDoom arcade: could not save {} minigame progress",
+                    kSkyDoomArcadeGameNames[game]
+                );
+            }
+
+            const std::int32_t bookPlaced =
+                g_arcadeBookPlaced[game] ? 1 : 0;
+
+            if (
+                !a_intfc->WriteRecord(
+                    kSkyDoomBookRecords[game],
+                    kSkyDoomBookRecordVersion,
+                    bookPlaced
+                )
+            )
+            {
+                logger::error(
+                    "SkyDoom arcade: could not save the {} book state",
+                    kSkyDoomArcadeGameNames[game]
+                );
+            }
         }
     }
 
@@ -10375,10 +10579,10 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
     )
     {
         g_arcadeProgress =
-            SkyDoomArcadeProgress{};
+            {};
 
         g_arcadeBookPlaced =
-            false;
+            {};
 
         std::uint32_t type =
             0;
@@ -10397,56 +10601,74 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
             )
         )
         {
-            if (
-                type == kSkyDoomBookRecord &&
-                version == kSkyDoomBookRecordVersion &&
-                length == sizeof(std::int32_t)
+            for (
+                std::size_t game = 0;
+                game < kSkyDoomArcadeGameCount;
+                ++game
             )
             {
-                std::int32_t bookPlaced =
-                    0;
-
-                if (a_intfc->ReadRecordData(bookPlaced) == sizeof(bookPlaced))
+                if (
+                    type == kSkyDoomBookRecords[game] &&
+                    version == kSkyDoomBookRecordVersion &&
+                    length == sizeof(std::int32_t)
+                )
                 {
-                    g_arcadeBookPlaced =
-                        bookPlaced != 0;
+                    std::int32_t bookPlaced =
+                        0;
+
+                    if (a_intfc->ReadRecordData(bookPlaced) == sizeof(bookPlaced))
+                    {
+                        g_arcadeBookPlaced[game] =
+                            bookPlaced != 0;
+                    }
+
+                    break;
                 }
 
-                continue;
-            }
+                if (
+                    type == kSkyDoomArcadeRecords[game] &&
+                    version == kSkyDoomArcadeRecordVersion &&
+                    length == sizeof(SkyDoomArcadeProgress)
+                )
+                {
+                    SkyDoomArcadeProgress loaded;
 
-            if (
-                type != kSkyDoomArcadeRecord ||
-                version != kSkyDoomArcadeRecordVersion ||
-                length != sizeof(SkyDoomArcadeProgress)
-            )
-            {
-                continue;
-            }
+                    if (
+                        a_intfc->ReadRecordData(loaded) == sizeof(loaded) &&
+                        SkyDoomArcadeLevelValid(
+                            static_cast<SkyDoomArcadeGame>(game),
+                            loaded.episode,
+                            loaded.map
+                        )
+                    )
+                    {
+                        g_arcadeProgress[game] =
+                            loaded;
+                    }
 
-            SkyDoomArcadeProgress loaded;
-
-            if (
-                a_intfc->ReadRecordData(loaded) == sizeof(loaded) &&
-                loaded.episode >= 1 &&
-                loaded.episode <= 4 &&
-                loaded.map >= 1 &&
-                loaded.map <= 9
-            )
-            {
-                g_arcadeProgress =
-                    loaded;
+                    break;
+                }
             }
         }
 
-        logger::info(
-            "SkyDoom arcade: progress E{}M{}{}",
-            g_arcadeProgress.episode,
-            g_arcadeProgress.map,
-            g_arcadeProgress.hasInventory ?
-                " with saved inventory" :
-                ""
-        );
+        for (
+            std::size_t game = 0;
+            game < kSkyDoomArcadeGameCount;
+            ++game
+        )
+        {
+            logger::info(
+                "SkyDoom arcade: {} progress {}{}",
+                kSkyDoomArcadeGameNames[game],
+                SkyDoomArcadeLevelName(
+                    static_cast<SkyDoomArcadeGame>(game),
+                    g_arcadeProgress[game]
+                ),
+                g_arcadeProgress[game].hasInventory ?
+                    " with saved inventory" :
+                    ""
+            );
+        }
     }
 
     void RevertSkyDoomArcadeProgress(
@@ -10454,15 +10676,15 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
     )
     {
         g_arcadeProgress =
-            SkyDoomArcadeProgress{};
+            {};
 
         g_arcadeBookPlaced =
-            false;
+            {};
     }
 
-    // The book open in the Book Menu is the arcade book.
-    std::atomic_bool g_arcadeBookOpen{
-        false
+    // The game whose book is open in the Book Menu, or -1.
+    std::atomic_int g_arcadeBookOpen{
+        -1
     };
 
     Microsoft::WRL::ComPtr<ID3D11Texture2D> g_arcadeTexture;
@@ -10476,7 +10698,9 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
             SkyDoomArcadePhase::kIdle;
     }
 
-    RE::TESObjectBOOK* GetSkyDoomArcadeBook()
+    RE::TESObjectBOOK* GetSkyDoomArcadeBook(
+        SkyDoomArcadeGame a_game
+    )
     {
         auto* data =
             RE::TESDataHandler::GetSingleton();
@@ -10484,7 +10708,11 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         return
             data ?
                 data->LookupForm<RE::TESObjectBOOK>(
-                    kSkyDoomArcadeBookLocalId,
+                    kSkyDoomArcadeBookLocalIds[
+                        SkyDoomArcadeGameIndex(
+                            a_game
+                        )
+                    ],
                     kSkyDoomPluginFile
                 ) :
                 nullptr;
@@ -11084,16 +11312,42 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         );
     }
 
-    bool StartSkyDoomArcade()
+    bool StartSkyDoomArcade(
+        SkyDoomArcadeGame a_game
+    )
     {
         if (SkyDoomArcadeActive())
         {
             return false;
         }
 
+        const bool doom2 =
+            a_game == SkyDoomArcadeGame::kDoom2;
+
+        const std::wstring& wadPath =
+            doom2 ?
+                g_doom2WadPath :
+                g_doomWadPath;
+
+        if (
+            doom2 &&
+            wadPath.empty()
+        )
+        {
+            logger::warn(
+                "SkyDoom arcade: cannot start DOOM II (DOOM2.WAD not found)"
+            );
+
+            RE::SendHUDMessage::ShowHUDMessage(
+                "The pages are blank. DOOM II needs DOOM2.WAD, which was not found."
+            );
+
+            return false;
+        }
+
         if (
             g_doomExePath.empty() ||
-            g_doomWadPath.empty() ||
+            wadPath.empty() ||
             !g_doomJob ||
             !g_inputHookInstalled
         )
@@ -11108,6 +11362,11 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 
             return false;
         }
+
+        const auto& progress =
+            SkyDoomArcadeProgressFor(
+                a_game
+            );
 
         std::string mappingName;
 
@@ -11255,8 +11514,16 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 
             std::error_code error;
 
+            // SKYDOOM_DOOM2: DOOM II's saves are kept apart; the settings
+            // (keys, volumes, screen) are shared.
+            const auto savesDirectory =
+                minigameDirectory /
+                (doom2 ?
+                    L"saves-doom2" :
+                    L"saves");
+
             std::filesystem::create_directories(
-                minigameDirectory / L"saves",
+                savesDirectory,
                 error
             );
 
@@ -11265,7 +11532,7 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
                 minigameFiles =
                     L" -config \"" + (minigameDirectory / L"minigame-default.cfg").wstring() +
                     L"\" -extraconfig \"" + (minigameDirectory / L"minigame.cfg").wstring() +
-                    L"\" -savedir \"" + (minigameDirectory / L"saves").wstring() +
+                    L"\" -savedir \"" + savesDirectory.wstring() +
                     L"\"";
             }
             else
@@ -11277,12 +11544,18 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
             }
         }
 
-        // Start at the saved level; DOOM skills are 1-5.
+        // Start at the saved level: -warp episode map in DOOM, -warp map
+        // in DOOM II. DOOM skills are 1-5.
+        const std::wstring warp =
+            doom2 ?
+                std::to_wstring(progress.map) :
+                std::to_wstring(progress.episode) +
+                    L" " + std::to_wstring(progress.map);
+
         std::wstring commandLine =
             L"\"" + g_doomExePath +
-            L"\" -iwad \"" + g_doomWadPath +
-            L"\" -warp " + std::to_wstring(g_arcadeProgress.episode) +
-            L" " + std::to_wstring(g_arcadeProgress.map) +
+            L"\" -iwad \"" + wadPath +
+            L"\" -warp " + warp +
             L" -skill " + std::to_wstring(skill + 1) +
             minigameFiles +
             L" -nomouse -window -skydoomarcade " +
@@ -11396,13 +11669,16 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 
             g_arcade.startedMs =
                 GetTickCount64();
+
+            g_arcade.game =
+                a_game;
         }
 
         g_arcadePhase =
             SkyDoomArcadePhase::kStarting;
 
         // What the player carried out of the last level finished.
-        if (g_arcadeProgress.hasInventory)
+        if (progress.hasInventory)
         {
             for (
                 std::uint16_t field = 1;
@@ -11413,7 +11689,7 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
                 PushSkyDoomArcadeInput(
                     SKYDOOM_INPUT_EVENT_ARCADE_SETUP,
                     field,
-                    g_arcadeProgress.inventory[field]
+                    progress.inventory[field]
                 );
             }
         }
@@ -11444,12 +11720,19 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         }
 
         logger::info(
-            "SkyDoom arcade: started (pid {}) at E{}M{}, skill {}{}",
+            "SkyDoom arcade: started {} (pid {}) at {}, skill {}{}",
+            kSkyDoomArcadeGameNames[
+                SkyDoomArcadeGameIndex(
+                    a_game
+                )
+            ],
             processInfo.dwProcessId,
-            g_arcadeProgress.episode,
-            g_arcadeProgress.map,
+            SkyDoomArcadeLevelName(
+                a_game,
+                progress
+            ),
             skill + 1,
-            g_arcadeProgress.hasInventory ?
+            progress.hasInventory ?
                 ", saved inventory" :
                 ""
         );
@@ -11552,29 +11835,37 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
             case SKYDOOM_ARCADE_STATUS_LEVEL_DONE:
                 // Saved now, whether the player goes on or returns.
                 if (
-                    event.damage >= 1 &&
-                    event.damage <= 4 &&
-                    event.angle_offset >= 1 &&
-                    event.angle_offset <= 9
+                    SkyDoomArcadeLevelValid(
+                        g_arcade.game,
+                        event.damage,
+                        event.angle_offset
+                    )
                 )
                 {
-                    g_arcadeProgress.episode =
+                    auto& progress =
+                        SkyDoomArcadeProgressFor(
+                            g_arcade.game
+                        );
+
+                    progress.episode =
                         event.damage;
 
-                    g_arcadeProgress.map =
+                    progress.map =
                         event.angle_offset;
 
-                    g_arcadeProgress.hasInventory =
+                    progress.hasInventory =
                         1;
 
-                    g_arcadeProgress.inventory =
+                    progress.inventory =
                         g_arcade.pendingInventory;
 
                     logger::info(
-                        "SkyDoom arcade: level finished, next E{}M{} (health {})",
-                        g_arcadeProgress.episode,
-                        g_arcadeProgress.map,
-                        g_arcadeProgress.inventory[SKYDOOM_ARCADE_INV_HEALTH]
+                        "SkyDoom arcade: level finished, next {} (health {})",
+                        SkyDoomArcadeLevelName(
+                            g_arcade.game,
+                            progress
+                        ),
+                        progress.inventory[SKYDOOM_ARCADE_INV_HEALTH]
                     );
                 }
                 break;
@@ -11582,11 +11873,22 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
             case SKYDOOM_ARCADE_STATUS_RETURN:
             {
                 const std::string message =
-                    std::format(
-                        "You return to Skyrim. Read the book again to play E{}M{}.",
-                        g_arcadeProgress.episode,
-                        g_arcadeProgress.map
-                    );
+                    !g_arcade.finishedMessage.empty() ?
+                        g_arcade.finishedMessage :
+                        std::format(
+                            "You return to Skyrim. Read {} again to play {}.",
+                            kSkyDoomArcadeBookNames[
+                                SkyDoomArcadeGameIndex(
+                                    g_arcade.game
+                                )
+                            ],
+                            SkyDoomArcadeLevelName(
+                                g_arcade.game,
+                                SkyDoomArcadeProgressFor(
+                                    g_arcade.game
+                                )
+                            )
+                        );
 
                 StopSkyDoomArcade(
                     "the player returned to Skyrim",
@@ -11598,6 +11900,29 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 
             case SKYDOOM_ARCADE_STATUS_EPISODE_DONE:
             {
+                auto& progress =
+                    SkyDoomArcadeProgressFor(
+                        g_arcade.game
+                    );
+
+                // SKYDOOM_DOOM2: the last level is done and the cast of
+                // monsters begins. It plays on; the player leaves through
+                // DOOM's menu (Quit), and the next read starts over.
+                if (g_arcade.game == SkyDoomArcadeGame::kDoom2)
+                {
+                    progress =
+                        SkyDoomArcadeProgress{};
+
+                    g_arcade.finishedMessage =
+                        "You have finished DOOM II! Read Hell on Earth again to start over.";
+
+                    logger::info(
+                        "SkyDoom arcade: DOOM II finished"
+                    );
+
+                    break;
+                }
+
                 // A new episode starts from scratch, as in DOOM.
                 const std::int32_t finished =
                     event.damage;
@@ -11616,10 +11941,10 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
                     finished < episodes
                 )
                 {
-                    g_arcadeProgress =
+                    progress =
                         SkyDoomArcadeProgress{};
 
-                    g_arcadeProgress.episode =
+                    progress.episode =
                         finished + 1;
 
                     message =
@@ -11632,7 +11957,7 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
                 }
                 else
                 {
-                    g_arcadeProgress =
+                    progress =
                         SkyDoomArcadeProgress{};
 
                     message =
@@ -12107,7 +12432,8 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         return true;
     }
 
-    // Book Menu: closing "Knee-Deep in the Dead" starts the minigame.
+    // Book Menu: closing a minigame book ("Knee-Deep in the Dead" or
+    // "Hell on Earth") starts its game.
     class SkyDoomArcadeBookSink final :
         public RE::BSTEventSink<RE::MenuOpenCloseEvent>
     {
@@ -12115,7 +12441,6 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         static SkyDoomArcadeBookSink* GetSingleton()
         {
             static SkyDoomArcadeBookSink singleton;
-
             return &singleton;
         }
 
@@ -12134,21 +12459,47 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
 
             if (a_event->opening)
             {
-                auto* book =
-                    GetSkyDoomArcadeBook();
+                int open =
+                    -1;
+
+                for (
+                    std::size_t game = 0;
+                    game < kSkyDoomArcadeGameCount;
+                    ++game
+                )
+                {
+                    auto* book =
+                        GetSkyDoomArcadeBook(
+                            static_cast<SkyDoomArcadeGame>(game)
+                        );
+
+                    if (
+                        book &&
+                        RE::BookMenu::GetTargetForm() == book
+                    )
+                    {
+                        open =
+                            static_cast<int>(game);
+                    }
+                }
 
                 g_arcadeBookOpen =
-                    book &&
-                    RE::BookMenu::GetTargetForm() == book;
+                    open;
             }
-            else if (g_arcadeBookOpen.exchange(false))
+            else if (
+                const int game =
+                    g_arcadeBookOpen.exchange(-1);
+                game >= 0
+            )
             {
                 if (auto* tasks = SKSE::GetTaskInterface())
                 {
                     tasks->AddTask(
-                        []()
+                        [game]()
                         {
-                            StartSkyDoomArcade();
+                            StartSkyDoomArcade(
+                                static_cast<SkyDoomArcadeGame>(game)
+                            );
                         }
                     );
                 }
@@ -12159,17 +12510,29 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
     };
 
     /*
-        The book is found, not given: the first time the boss chest at the
-        end of Bleak Falls Barrow is loaded (the BossContainer of
-        BleakFallsBarrowLocation, beside the Draugr Overlord who carries
-        the Dragonstone), the book is put in it, once per character
-        (co-save record 'BOOK'). Characters that already have the book are
-        left alone. The MCM Minigame page has a "Give me the book" button
-        for characters past that point.
+        The books are found, not given: the first time a book's boss chest
+        is loaded, the book is put in it, once per character (co-save
+        records 'BOOK' and 'BOK2'). Characters that already have the book
+        are left alone. The MCM Minigame page has buttons that give the
+        books to characters past that point.
+
+        - "Knee-Deep in the Dead" (DOOM): the boss chest at the end of
+          Bleak Falls Barrow (the BossContainer of BleakFallsBarrowLocation,
+          beside the Draugr Overlord who carries the Dragonstone).
+        - "Hell on Earth" (DOOM II): the boss chest in Ustengrav, where the
+          next main quest step (The Horn of Jurgen Windcaller) leads.
     */
     constexpr RE::FormID
-        kSkyDoomBookChestId =
-            0x000376EF;
+        kSkyDoomBookChestIds[kSkyDoomArcadeGameCount] = {
+            0x000376EF,  // BleakFallsBarrow02
+            0x00026B6D   // Ustengrav02
+        };
+
+    constexpr const char*
+        kSkyDoomBookChestPlaces[kSkyDoomArcadeGameCount] = {
+            "Bleak Falls Barrow",
+            "Ustengrav"
+        };
 
     bool SkyDoomPlayerHasArcadeBook(
         RE::TESObjectBOOK* a_book
@@ -12200,64 +12563,87 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
     }
 
     // UpdateSharedState, every 50 ms on the main thread.
-    void PlaceSkyDoomArcadeBook()
+    void PlaceSkyDoomArcadeBooks()
     {
-        if (g_arcadeBookPlaced)
-        {
-            return;
-        }
-
-        auto* chest =
-            RE::TESForm::LookupByID<RE::TESObjectREFR>(
-                kSkyDoomBookChestId
-            );
-
-        if (
-            !chest ||
-            !chest->Is3DLoaded() ||
-            chest->IsDisabled()
+        for (
+            std::size_t game = 0;
+            game < kSkyDoomArcadeGameCount;
+            ++game
         )
         {
-            return;
-        }
+            if (g_arcadeBookPlaced[game])
+            {
+                continue;
+            }
 
-        auto* book =
-            GetSkyDoomArcadeBook();
+            auto* chest =
+                RE::TESForm::LookupByID<RE::TESObjectREFR>(
+                    kSkyDoomBookChestIds[game]
+                );
 
-        if (!book)
-        {
-            return;
-        }
+            if (
+                !chest ||
+                !chest->Is3DLoaded() ||
+                chest->IsDisabled()
+            )
+            {
+                continue;
+            }
 
-        g_arcadeBookPlaced =
-            true;
+            auto* book =
+                GetSkyDoomArcadeBook(
+                    static_cast<SkyDoomArcadeGame>(game)
+                );
 
-        if (SkyDoomPlayerHasArcadeBook(book))
-        {
-            logger::info(
-                "SkyDoom arcade: Bleak Falls Barrow chest loaded; the player already has the book"
+            if (!book)
+            {
+                continue;
+            }
+
+            g_arcadeBookPlaced[game] =
+                true;
+
+            if (SkyDoomPlayerHasArcadeBook(book))
+            {
+                logger::info(
+                    "SkyDoom arcade: {} chest loaded; the player already has {}",
+                    kSkyDoomBookChestPlaces[game],
+                    kSkyDoomArcadeBookNames[game]
+                );
+
+                continue;
+            }
+
+            chest->AddObjectToContainer(
+                book,
+                nullptr,
+                1,
+                nullptr
             );
 
-            return;
+            logger::info(
+                "SkyDoom arcade: {} placed in the {} chest",
+                kSkyDoomArcadeBookNames[game],
+                kSkyDoomBookChestPlaces[game]
+            );
         }
-
-        chest->AddObjectToContainer(
-            book,
-            nullptr,
-            1,
-            nullptr
-        );
-
-        logger::info(
-            "SkyDoom arcade: book placed in the Bleak Falls Barrow chest"
-        );
     }
 
-    // The MCM button (SkyDoom_MCM.GiveBook), on the main thread.
-    void GiveSkyDoomArcadeBook()
+    // The MCM buttons (SkyDoom_MCM.GiveBook, GiveDoom2Book), on the main
+    // thread.
+    void GiveSkyDoomArcadeBook(
+        SkyDoomArcadeGame a_game
+    )
     {
+        const auto game =
+            SkyDoomArcadeGameIndex(
+                a_game
+            );
+
         auto* book =
-            GetSkyDoomArcadeBook();
+            GetSkyDoomArcadeBook(
+                a_game
+            );
 
         auto* player =
             RE::PlayerCharacter::GetSingleton();
@@ -12271,13 +12657,19 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         }
 
         // No second copy in the chest later.
-        g_arcadeBookPlaced =
+        g_arcadeBookPlaced[game] =
             true;
 
         if (SkyDoomPlayerHasArcadeBook(book))
         {
+            const auto message =
+                std::format(
+                    "You already have {}.",
+                    kSkyDoomArcadeBookNames[game]
+                );
+
             RE::SendHUDMessage::ShowHUDMessage(
-                "You already have Knee-Deep in the Dead."
+                message.c_str()
             );
 
             return;
@@ -12290,12 +12682,19 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
             nullptr
         );
 
+        const auto message =
+            std::format(
+                "{} was added to your inventory.",
+                kSkyDoomArcadeBookNames[game]
+            );
+
         RE::SendHUDMessage::ShowHUDMessage(
-            "Knee-Deep in the Dead was added to your inventory."
+            message.c_str()
         );
 
         logger::info(
-            "SkyDoom arcade: book given from the MCM"
+            "SkyDoom arcade: {} given from the MCM",
+            kSkyDoomArcadeBookNames[game]
         );
     }
 
@@ -12306,7 +12705,29 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
         if (auto* tasks = SKSE::GetTaskInterface())
         {
             tasks->AddTask(
-                GiveSkyDoomArcadeBook
+                []()
+                {
+                    GiveSkyDoomArcadeBook(
+                        SkyDoomArcadeGame::kDoom
+                    );
+                }
+            );
+        }
+    }
+
+    void SkyDoomGiveDoom2BookNative(
+        RE::TESQuest*
+    )
+    {
+        if (auto* tasks = SKSE::GetTaskInterface())
+        {
+            tasks->AddTask(
+                []()
+                {
+                    GiveSkyDoomArcadeBook(
+                        SkyDoomArcadeGame::kDoom2
+                    );
+                }
             );
         }
     }
@@ -12325,11 +12746,24 @@ constexpr const char SKYDOOM_VERTEX_SHADER[] = R"(
             );
         }
 
-        if (!GetSkyDoomArcadeBook())
+        for (
+            std::size_t game = 0;
+            game < kSkyDoomArcadeGameCount;
+            ++game
+        )
         {
-            logger::warn(
-                "SkyDoom arcade: book not found in SkyDoom.esp; the minigame cannot be started"
-            );
+            if (
+                !GetSkyDoomArcadeBook(
+                    static_cast<SkyDoomArcadeGame>(game)
+                )
+            )
+            {
+                logger::warn(
+                    "SkyDoom arcade: {} not found in SkyDoom.esp; {} cannot be started",
+                    kSkyDoomArcadeBookNames[game],
+                    kSkyDoomArcadeGameNames[game]
+                );
+            }
         }
     }
 
@@ -45599,7 +46033,7 @@ SKSE::log::info(
 	{
 		// SKYDOOM_ARCADE
 		UpdateSkyDoomArcade();
-		PlaceSkyDoomArcadeBook();
+		PlaceSkyDoomArcadeBooks();
 
 		// SKYDOOM_AUDIO
 		UpdateSkyDoomAudio();
@@ -45873,6 +46307,12 @@ SKSE::log::info(
 			"GiveBook",
 			"SkyDoom_MCM",
 			SkyDoomGiveBookNative);
+
+		// SKYDOOM_DOOM2: and its DOOM II book button.
+		a_vm->RegisterFunction(
+			"GiveDoom2Book",
+			"SkyDoom_MCM",
+			SkyDoomGiveDoom2BookNative);
 
 		return true;
 	}

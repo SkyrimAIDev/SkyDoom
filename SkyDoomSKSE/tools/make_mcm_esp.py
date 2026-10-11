@@ -1,5 +1,5 @@
 """Generate SkyDoom.esp, the light plugin that hosts SkyDoom's MCM and the
-DOOM minigame book.
+DOOM minigame books.
 
 The plugin holds a quest, the layout MCM Helper expects (and that mods such
 as Better Third Person Selection and TrueHUD ship):
@@ -9,9 +9,10 @@ as Better Third Person Selection and TrueHUD ship):
   * one reference alias "PlayerAlias" forced to the player (0x14), with
     SkyUI's SKI_PlayerLoadGameAlias script so the menu re-registers on load.
 
-and a book, "Knee-Deep in the Dead" (SkyDoom_ArcadeBook, 0x801). The SKSE
-plugin puts it in the player's inventory and starts the DOOM minigame when
-it is closed after reading (SKYDOOM_ARCADE).
+and two books, "Knee-Deep in the Dead" (SkyDoom_ArcadeBook, 0x801) and
+"Hell on Earth" (SkyDoom_ArcadeBook2, 0x802). The SKSE plugin puts them in
+boss chests (Bleak Falls Barrow, Ustengrav) and starts the DOOM or DOOM II
+minigame when one is closed after reading (SKYDOOM_ARCADE, SKYDOOM_DOOM2).
 
 The root .gitignore excludes *.esp, so the plugin is generated at package
 time instead of being committed.
@@ -23,7 +24,8 @@ import struct
 import sys
 
 QUEST_FORM_ID = 0x01000800  # first light-plugin object ID
-BOOK_FORM_ID = 0x01000801  # kSkyDoomArcadeBookLocalId in Plugin.cpp
+BOOK_FORM_ID = 0x01000801  # kSkyDoomArcadeBookLocalIds in Plugin.cpp
+BOOK2_FORM_ID = 0x01000802  # DOOM II
 FORM_VERSION = 44  # Skyrim SE
 
 
@@ -115,12 +117,45 @@ If the way back is ever lost, hold the Toggle DOOM mode key.
 """
 
 
-def book():
-    data = subrecord(b"EDID", zstring("SkyDoom_ArcadeBook"))
+BOOK2_TEXT = """<p align="center">
+<font size="36">HELL
+ON EARTH</font>
+
+
+A record of the
+fall of Earth
+</p>
+[pagebreak]
+<p align="left">
+This book was not written. It was left behind.
+
+Its pages smell of smoke and hot iron. Between the lines lies a city that is not Solitude or Markarth, its towers burning, its streets full of the same things that came through the gate before. This time they did not stop at the hangar.
+
+Somewhere at the end of it is a wall with a face. It is waiting.
+</p>
+[pagebreak]
+<p align="left">
+Close this book to be pulled through.
+
+As before, you fight with what you find, and what you find stays there. This gate keeps its own record of where you stopped, and its own saves.
+
+At the end of each level the gate asks whether you go on. Press Use to go deeper, or Esc (B on a controller) to return to where you stood.
+
+Esc (Start on a controller) opens the gate's own menu: save, load, options, or quit back to Skyrim in the middle of a level.
+
+When the last of them falls, they pass before you one by one. Open the menu and quit when you have seen enough.
+
+If the way back is ever lost, hold the Toggle DOOM mode key.
+</p>
+"""
+
+
+def book(form_id, editor_id, name, model, text):
+    data = subrecord(b"EDID", zstring(editor_id))
     data += subrecord(b"OBND", struct.pack("<6h", -9, -11, -1, 9, 11, 2))
-    data += subrecord(b"FULL", zstring("Knee-Deep in the Dead"))
-    data += subrecord(b"MODL", zstring("Clutter\\Books\\BasicBook07.nif"))
-    data += subrecord(b"DESC", zstring(BOOK_TEXT.replace("\n", "\r\n")))
+    data += subrecord(b"FULL", zstring(name))
+    data += subrecord(b"MODL", zstring(model))
+    data += subrecord(b"DESC", zstring(text.replace("\n", "\r\n")))
     data += subrecord(b"KSIZ", struct.pack("<I", 1))
     data += subrecord(b"KWDA", struct.pack("<I", 0x000937A2))  # VendorItemBook
     # Flags, type (book), unused, teaches (none), value, weight. Worth
@@ -128,19 +163,23 @@ def book():
     data += subrecord(b"DATA", struct.pack("<BBHiIf", 0, 0, 0, -1, 0, 0.0))
     data += subrecord(b"INAM", struct.pack("<I", 0x00015417))  # vanilla book inventory art
     data += subrecord(b"CNAM", zstring(""))
-    return record(b"BOOK", BOOK_FORM_ID, 0, data)
+    return record(b"BOOK", form_id, 0, data)
 
 
 def plugin():
     # HEDR: version, number of records and groups, next object ID.
-    header = subrecord(b"HEDR", struct.pack("<fII", 1.70, 4, (BOOK_FORM_ID & 0xFFF) + 1))
+    header = subrecord(b"HEDR", struct.pack("<fII", 1.70, 5, (BOOK2_FORM_ID & 0xFFF) + 1))
     header += subrecord(b"CNAM", zstring("DEFAULT"))
     header += subrecord(b"MAST", zstring("Skyrim.esm"))
     header += subrecord(b"DATA", struct.pack("<Q", 0))
     header += subrecord(b"INTV", struct.pack("<I", 1))
     tes4 = record(b"TES4", 0, 0x200, header)  # 0x200 = ESL (light)
     # Top-level groups in the game's order: BOOK comes before QUST.
-    return tes4 + group(b"BOOK", book()) + group(b"QUST", quest())
+    books = book(BOOK_FORM_ID, "SkyDoom_ArcadeBook", "Knee-Deep in the Dead",
+                 "Clutter\\Books\\BasicBook07.nif", BOOK_TEXT)
+    books += book(BOOK2_FORM_ID, "SkyDoom_ArcadeBook2", "Hell on Earth",
+                  "Clutter\\Books\\BasicBook03.nif", BOOK2_TEXT)
+    return tes4 + group(b"BOOK", books) + group(b"QUST", quest())
 
 
 if __name__ == "__main__":

@@ -74,6 +74,9 @@ namespace SkyDoom::Settings
 		// Empty: discover DOOM.WAD in the user's Steam libraries.
 		std::wstring wadPath;
 
+		// Empty: discover DOOM2.WAD in the user's Steam libraries.
+		std::wstring doom2WadPath;
+
 		// [General]
 		bool enabled = true;
 		CombatMode combatMode = CombatMode::WeaponDrawn;
