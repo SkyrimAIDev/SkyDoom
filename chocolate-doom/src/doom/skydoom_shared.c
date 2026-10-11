@@ -2068,9 +2068,23 @@ if (
 
             {
 
-                skydoom_pending_weapon =
-
-                    wp_shotgun;
+                /*
+                    SKYDOOM_DOOM2_COMBAT: as in DOOM II, the Shotgun key
+                    takes the super shotgun, unless it is already up;
+                    then it takes the shotgun.
+                */
+                if (gamemode == commercial &&
+                    players[consoleplayer].weaponowned[wp_supershotgun] &&
+                    players[consoleplayer].readyweapon != wp_supershotgun)
+                {
+                    skydoom_pending_weapon =
+                        wp_supershotgun;
+                }
+                else
+                {
+                    skydoom_pending_weapon =
+                        wp_shotgun;
+                }
 
             }
 
@@ -4550,6 +4564,12 @@ void SkyDoom_SharedUpdate(void)
 
         /* SKYDOOM_DEV_BFG_LOADOUT_V14 */
         player->weaponowned[wp_bfg] = 1;
+
+        /* SKYDOOM_DOOM2_COMBAT: DOOM II's super shotgun. */
+        if (gamemode == commercial)
+        {
+            player->weaponowned[wp_supershotgun] = 1;
+        }
 
         if (
             player->ammo[

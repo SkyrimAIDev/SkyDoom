@@ -913,6 +913,7 @@ A_FireShotgun2
     int		i;
     angle_t	angle;
     int		damage;
+    fixed_t	slope;
 		
 	
     S_StartSound (player->mo, sfx_dshtgn);
@@ -931,10 +932,24 @@ A_FireShotgun2
 	damage = 5*(P_Random ()%3+1);
 	angle = player->mo->angle;
 	angle += P_SubRandom() << ANGLETOFINESHIFT;
+	// SKYDOOM_DOOM2_COMBAT: the slope's random number is drawn here, in
+	// the same order as before, so it can be reported.
+	slope = P_SubRandom() << 5;
+
+	// SKYDOOM_DOOM2_COMBAT: each pellet reaches Skyrim as a shotgun
+	// pellet, with DOOM's own damage and (wider) spread.
+	if (player == &players[consoleplayer])
+	{
+	    SkyDoom_ReportShotgunPellet(
+		damage,
+		(int32_t) (angle - player->mo->angle),
+		(int32_t) slope);
+	}
+
 	P_LineAttack (player->mo,
 		      angle,
 		      MISSILERANGE,
-		      bulletslope + (P_SubRandom() << 5), damage);
+		      bulletslope + slope, damage);
     }
 }
 
